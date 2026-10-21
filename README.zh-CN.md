@@ -15,8 +15,6 @@
 
 [English](README.md) · **简体中文**
 
-<sub>感谢 [LINUX DO](https://linux.do)（新的理想型社区）佬友们的支持</sub>
-
 </div>
 
 ---
@@ -199,6 +197,10 @@ English · 简体中文 · 繁體中文 · 日本語 · 한국어 · Español ·
 ## 参与贡献
 
 欢迎提 bug、加新语言、加新程序的适配——见 [CONTRIBUTING.md](CONTRIBUTING.md)。`npm test` 会跑 60 多个测试（需要 tmux，不需要联网）。
+
+## 社区
+
+- [Linux.Do](https://linux.do/) — 与社区一起分享、讨论、关注开发进展。
 
 ## 许可证
 

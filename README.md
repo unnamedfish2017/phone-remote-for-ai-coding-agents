@@ -13,8 +13,6 @@ Speak your prompt, tap send, read short numbered answers. **Zero dependencies.**
 
 **English** · [简体中文](README.zh-CN.md)
 
-<sub>Thanks to the [LINUX DO](https://linux.do) community ("The New Ideal Community") for the support</sub>
-
 </div>
 
 ---
@@ -198,6 +196,10 @@ Phone Remote is deliberately not a terminal emulator. If you want one in the bro
 ## Contributing
 
 Bug reports, new languages and new agent profiles are all welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). `npm test` runs 60+ tests (it needs tmux; no network).
+
+## Community
+
+- [Linux.Do](https://linux.do/) — Share, discuss, and follow development with the community.
 
 ## License
 
