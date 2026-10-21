@@ -5,7 +5,7 @@ Thanks for helping! This project is small on purpose: **no runtime dependencies*
 ## Setup
 
 ```bash
-git clone https://github.com/YOUR-NAME/phone-remote-for-ai-coding-agents.git && cd phone-remote-for-ai-coding-agents
+git clone https://github.com/unnamedfish2017/phone-remote-for-ai-coding-agents.git && cd phone-remote-for-ai-coding-agents
 npm test            # needs Node 18+ and tmux; no network
 node bin/phone-remote.mjs --socket-path /tmp/phone-remote-dev.sock     # a throw-away tmux server to play with
 ```

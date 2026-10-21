@@ -62,7 +62,7 @@
 在跑助手的那台电脑上需要 **Node.js 18+** 和 **tmux 3.x**。作者在 Linux 上开发和测试；macOS 理论上能用（进程识别会退回 `ps`），但作者没试过，欢迎反馈。
 
 ```bash
-git clone https://github.com/YOUR-NAME/phone-remote-for-ai-coding-agents.git
+git clone https://github.com/unnamedfish2017/phone-remote-for-ai-coding-agents.git
 cd phone-remote-for-ai-coding-agents
 node bin/phone-remote.mjs
 ```

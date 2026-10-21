@@ -60,7 +60,7 @@ Phone Remote puts that window on your phone. You see what the agent is doing, an
 You need **Node.js 18+** and **tmux 3.x** on the computer where your agents run. Linux is what it is developed and tested on; macOS should work (process detection falls back to `ps`) but has not been tried by the author — reports welcome.
 
 ```bash
-git clone https://github.com/YOUR-NAME/phone-remote-for-ai-coding-agents.git
+git clone https://github.com/unnamedfish2017/phone-remote-for-ai-coding-agents.git
 cd phone-remote-for-ai-coding-agents
 node bin/phone-remote.mjs
 ```
