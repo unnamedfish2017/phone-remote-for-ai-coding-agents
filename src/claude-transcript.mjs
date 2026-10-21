@@ -3,7 +3,9 @@
 // Claude Code runs on the terminal's alternate screen, so tmux has no scrollback for it: "what was said before"
 // can only come from Claude Code's own session log. ~/.claude/sessions/<pid>.json registers every running Claude Code
 // process (session id, working directory, and the tmux pane it sits in); the log itself is
-// ~/.claude/projects/<encoded cwd>/<sessionId>.jsonl. Matching by pane id keeps two windows in the same directory apart.
+// ~/.claude/projects/<encoded cwd>/<sessionId>.jsonl. Matching by pane id keeps two windows in the same directory apart
+// (and, unlike the session name, survives `tmux rename-session`); tmux.mjs then checks that the registered process really
+// sits inside that pane, because pane ids repeat across tmux servers.
 
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";

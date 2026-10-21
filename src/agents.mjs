@@ -64,6 +64,21 @@ export function buildProcIndex(rows) {
   return { byPid, children };
 }
 
+// Is `pid` the pane's own process, or somewhere below it? Walks up from `pid`: a chain is short and needs no command
+// lines. false = the table knows the process and it sits elsewhere; null = the table does not know it at all (it
+// exited after the snapshot, or its pid belongs to another namespace), which says nothing either way.
+export function isInTree(index, rootPid, pid, maxDepth = 64) {
+  if (!index.byPid.has(pid)) return null;
+  let current = pid;
+  for (let depth = 0; depth <= maxDepth && current; depth += 1) {
+    if (current === rootPid) return true;
+    const row = index.byPid.get(current);
+    if (!row) return false;
+    current = row.ppid;
+  }
+  return false;
+}
+
 // Walk down from the window's own process level by level; the match closest to the window wins, so a `codex exec`
 // that Claude Code ran in its Bash tool does not turn a Claude window into a Codex one. A few layers of bash / su in
 // between do not matter (seen in the wild: bash → su → bash → su → bash → node → codex).
@@ -160,6 +175,11 @@ export function createAgentDetector({ procRoot = "/proc", ttlMs = 1500, now = Da
         return s.args.get(pid);
       };
       return findAgent(s.index, panePid, readArgs);
+    },
+    // true / false / null: does `pid` (a registered Claude Code process) sit inside the pane's process tree? See isInTree.
+    async contains(panePid, pid, { fresh = false } = {}) {
+      if (!panePid || !pid) return null;
+      return isInTree((await snapshot(fresh)).index, panePid, pid);
     },
   };
 }

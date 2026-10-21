@@ -134,14 +134,29 @@ export async function readScreen(config, paneId, historyLines) {
 // Look at the process tree, not the window name: the same shell window runs Claude today and Codex tomorrow.
 export const agentDetector = createAgentDetector();
 
+export async function panePidOf(config, paneId) {
+  return Number((await tmuxOrThrow(config, ["display-message", "-p", "-t", paneId, "#{pane_pid}"])).trim()) || 0;
+}
+
+// Pane ids (%3) are only unique inside one tmux server. With two servers on the machine (the default one and a
+// `tmux -L work`, say), a Claude Code registered from the other server's %3 must not be taken for ours — so the
+// registered process also has to sit below the pane's own process. "Cannot tell" counts as a match.
+export async function claudeSessionOfPane(sessions, paneId, panePid) {
+  if (!panePid) return null;
+  for (const session of sessions) {
+    if (session.pane_id === paneId && await agentDetector.contains(panePid, session.pid) !== false) return session;
+  }
+  return null;
+}
+
 // Rescan right before sending (the program may just have changed); if the tree shows nothing, fall back to
 // Claude Code's own registration.
 export async function paneAgentKind(config, paneId) {
   try {
-    const pid = Number((await tmuxOrThrow(config, ["display-message", "-p", "-t", paneId, "#{pane_pid}"])).trim());
+    const pid = await panePidOf(config, paneId);
     const found = pid ? await agentDetector.detect(pid, { fresh: true }) : null;
     if (found) return found.kind;
-    return (await listClaudeSessions(config.claudeDir)).some(s => s.pane_id === paneId) ? "claude" : null;
+    return await claudeSessionOfPane(await listClaudeSessions(config.claudeDir), paneId, pid) ? "claude" : null;
   } catch {
     return null;       // unrecognised is fine: send the generic way rather than fail the request
   }

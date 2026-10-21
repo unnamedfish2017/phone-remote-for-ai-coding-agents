@@ -11,6 +11,7 @@ import {
   createAgentDetector,
   describeAgent,
   findAgent,
+  isInTree,
   parsePsRows,
   planSend,
 } from "../src/agents.mjs";
@@ -68,6 +69,19 @@ test("findAgent: the pane's own process can be the agent; nothing found gives nu
 test("findAgent: a process loop in a corrupted table cannot hang the search", async () => {
   const index = table([[500, 501, "bash"], [501, 500, "bash"]]);
   assert.equal(await findAgent(index, 500, noArgs), null);
+});
+
+test("isInTree: a registered process counts only when it is the pane's own process or sits below it", () => {
+  const index = table([[100, 1, "tmux"], [200, 100, "bash"], [300, 200, "node"], [400, 300, "claude"], [500, 1, "claude"]]);
+  assert.equal(isInTree(index, 200, 400), true, "below the shell, through node");
+  assert.equal(isInTree(index, 200, 200), true, "the pane's own process");
+  assert.equal(isInTree(index, 200, 500), false, "a Claude Code elsewhere, e.g. in another tmux server");
+  assert.equal(isInTree(index, 400, 200), false, "the tree is not symmetric");
+  assert.equal(isInTree(index, 200, 999), null, "unknown to the table: cannot tell");
+});
+
+test("isInTree: a loop in a corrupted table ends instead of hanging", () => {
+  assert.equal(isInTree(table([[10, 20, "a"], [20, 10, "b"]]), 99, 10), false);
 });
 
 test("planSend: Codex gets a pause between typed text and Enter", () => {
@@ -130,6 +144,10 @@ test("detector on the real /proc: finds an agent-named child process of this tes
     const found = await detector.detect(process.pid, { fresh: true });
     assert.deepEqual(found, { kind: "opencode", pid: child.pid });
     assert.equal(await detector.detect(0), null);
+    assert.equal(await detector.contains(process.pid, child.pid, { fresh: true }), true);
+    assert.equal(await detector.contains(child.pid, process.pid), false, "a parent is not inside its child");
+    assert.equal(await detector.contains(process.pid, 2 ** 22 + 12345), null, "a pid the table has never seen");
+    assert.equal(await detector.contains(0, child.pid), null);
   } finally {
     child.kill("SIGKILL");
     await rm(dir, { recursive: true, force: true });

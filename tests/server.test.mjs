@@ -322,6 +322,28 @@ test("an earlier Claude Code conversation is served in pages, newest first, from
   } finally { await world.cleanup(); }
 });
 
+test("a Claude Code registered from another tmux server's pane with the same id is not attached to this window", { skip }, async () => {
+  const world = await scratch();
+  try {
+    mkdirSync(path.join(world.dir, "bin"));
+    symlinkSync("/bin/cat", path.join(world.dir, "bin", "claude"));
+    world.tmux("new-session", "-d", "-s", "demo", "-x", "100", "-y", "24", path.join(world.dir, "bin", "claude"));
+    const pane = world.tmux("display-message", "-p", "-t", "demo", "#{pane_id}").trim();
+    const claude = path.join(world.dir, "claude");
+    mkdirSync(path.join(claude, "sessions"), { recursive: true });
+    // this test runner is alive but not inside the pane — what a registration made through a different tmux server looks like
+    writeFileSync(path.join(claude, "sessions", `${process.pid}.json`),
+      JSON.stringify({ pid: process.pid, sessionId: "other", cwd: "/elsewhere", tmux: `other:@0.${pane}`, status: "busy", name: "stranger" }));
+    const w = await startServerProcess(world);
+    try {
+      const { windows } = await (await w.api("/api/windows")).json();
+      assert.equal(windows[0].claude, undefined, "the stranger's name and status do not show up on our window");
+      const transcript = await (await w.api(`/api/transcript?pane=${encodeURIComponent(pane)}`)).json();
+      assert.equal(transcript.available, false, "and neither does its conversation");
+    } finally { await w.stop(); }
+  } finally { await world.cleanup(); }
+});
+
 // ---------- HTTPS ----------
 
 const hasOpenssl = (() => { try { execFileSync("openssl", ["version"], { stdio: "ignore" }); return true; } catch { return false; } })();

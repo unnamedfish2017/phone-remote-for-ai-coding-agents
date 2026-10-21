@@ -16,7 +16,9 @@ import { describeAgent } from "./agents.mjs";
 import { listClaudeSessions, loadTranscript } from "./claude-transcript.mjs";
 import { fail } from "./errors.mjs";
 import { hostHeaderOk, ipAllowed } from "./netguard.mjs";
-import { MAX_HISTORY_LINES, PANE_RE, WINDOW_RE, agentDetector, listWindows, readScreen, sendInput, tmuxOrThrow } from "./tmux.mjs";
+import {
+  MAX_HISTORY_LINES, PANE_RE, WINDOW_RE, agentDetector, claudeSessionOfPane, listWindows, panePidOf, readScreen, sendInput, tmuxOrThrow,
+} from "./tmux.mjs";
 
 const WEB_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "web");
 const UI_FILE = path.join(WEB_DIR, "index.html");
@@ -161,11 +163,12 @@ export function createHandler(config, log = console) {
       if (request.method === "GET" && route === "/api/windows") {
         const windows = await listWindows(config);
         // which window runs which Claude Code session, and whether it is busy
-        const byPane = new Map((await listClaudeSessions(config.claudeDir)).map(s => [s.pane_id, s]));
+        const sessions = await listClaudeSessions(config.claudeDir);
         // what program each window runs (Claude Code / Codex / OpenCode): the page swaps labels and the quick menu on it
         const found = await Promise.all(windows.map(w => agentDetector.detect(w.pane_pid)));
+        const registered = await Promise.all(windows.map(w => claudeSessionOfPane(sessions, w.pane_id, w.pane_pid)));
         windows.forEach((w, i) => {
-          const s = byPane.get(w.pane_id);
+          const s = registered[i];
           if (s) w.claude = { name: s.name, status: s.status, session_id: s.session_id, updated_at: s.updated_at };
           const agent = describeAgent(found[i] ? found[i].kind : (s ? "claude" : ""));
           if (agent) w.agent = agent;
@@ -177,7 +180,7 @@ export function createHandler(config, log = console) {
       if (request.method === "GET" && route === "/api/transcript") {
         const pane = url.searchParams.get("pane") || "";
         if (!PANE_RE.test(pane)) throw fail("bad_pane", 400, "pane should look like %3");
-        const match = (await listClaudeSessions(config.claudeDir)).find(s => s.pane_id === pane);
+        const match = await claudeSessionOfPane(await listClaudeSessions(config.claudeDir), pane, await panePidOf(config, pane).catch(() => 0));
         if (!match) { sendJson(request, response, 200, { available: false, reason: "no Claude Code session in this window" }); return; }
         let entries;
         try { entries = await loadTranscript(match.transcript); }
