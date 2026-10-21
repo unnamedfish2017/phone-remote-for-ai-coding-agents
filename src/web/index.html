@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111418">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>tmux</title>
+<style>
+  :root {
+    --bg: #111418; --surface: #181c22; --surface-2: #222730; --line: #2a303a;
+    --text: #e8ebf0; --muted: #8f99a8; --accent: #4f8cff; --accent-text: #fff; --danger: #ff6b6b;
+    --term-bg: #0d1013; --term-fg: #dfe4ec; --cur-bg: #ffd166; --cur-fg: #111418;
+    --chip: #222730; --chip-text: #e8ebf0; --ok: #34d399;
+  }
+  :root[data-theme="light"] {
+    --bg: #f4f6f9; --surface: #ffffff; --surface-2: #eef1f5; --line: #d9dee6;
+    --text: #1f2430; --muted: #65708a; --accent: #2563eb; --accent-text: #fff; --danger: #dc2626;
+    --term-bg: #ffffff; --term-fg: #1f2430; --cur-bg: #2563eb; --cur-fg: #ffffff;
+    --chip: #eef1f5; --chip-text: #1f2430; --ok: #059669;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 -apple-system, "PingFang SC", "HarmonyOS Sans SC", "MiSans", "Noto Sans CJK SC", sans-serif; }
+  /* Japanese, Korean and Traditional Chinese draw the same Han characters differently: pick fonts per language so they do not fall back to a Simplified Chinese font */
+  html[lang="zh-TW"] body { font-family: -apple-system, "PingFang TC", "Noto Sans CJK TC", "Microsoft JhengHei", sans-serif; }
+  html[lang="ja"] body { font-family: -apple-system, "Hiragino Sans", "Noto Sans CJK JP", "Yu Gothic", sans-serif; }
+  html[lang="ko"] body { font-family: -apple-system, "Apple SD Gothic Neo", "Noto Sans CJK KR", "Malgun Gothic", sans-serif; }
+  body { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+  button { font-family: inherit; }
+
+  header { display: flex; gap: 8px; align-items: center; padding: 8px 10px;
+    padding-top: calc(8px + env(safe-area-inset-top)); background: var(--surface); border-bottom: 1px solid var(--line); }
+  .win-btn { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; text-align: left;
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; font-size: 15px; }
+  .win-btn .dot { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .win-btn .dot.live { background: var(--ok); box-shadow: 0 0 0 3px rgba(52, 211, 153, .18); }
+  .win-btn .lbl { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+  .win-btn .caret { color: var(--muted); font-size: 12px; }
+  .icon-btn { flex: 0 0 auto; background: var(--surface-2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 12px; width: 42px; height: 42px; font-size: 18px; }
+  .icon-btn:active, .win-btn:active { filter: brightness(.9); }
+
+  #status { font-size: 12px; color: var(--muted); padding: 4px 12px; display: flex; align-items: center; gap: 8px;
+    white-space: nowrap; overflow: hidden; background: var(--surface); border-bottom: 1px solid var(--line); }
+  #status .conn { width: 7px; height: 7px; border-radius: 50%; background: var(--danger); flex: 0 0 auto; }
+  #status .conn.ok { background: var(--ok); }
+  #status .txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #status.err .txt { color: var(--danger); }
+
+  #settings { display: none; background: var(--surface); border-bottom: 1px solid var(--line);
+    padding: 8px 12px; font-size: 14px; color: var(--text); }
+  #settings.open { display: block; }
+  #settings .row { display: flex; align-items: center; gap: 10px; margin: 8px 0; flex-wrap: wrap; }
+  #settings .row .k { color: var(--muted); font-size: 13px; min-width: 44px; }
+  #settings button, #settings select, #settings input[type=number], #settings input[type=text] { background: var(--surface-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; font-size: 14px; }
+  #settings input[type=number] { width: 80px; }
+  #settings input[type=text] { flex: 1; min-width: 0; font-size: 16px; }      /* 16px: iOS zooms the page when a focused input uses a smaller font */
+  #settings label.grow { flex: 1; min-width: 0; }
+  #settings label.grow select { flex: 1; min-width: 0; font-size: 16px; }
+  html.i18n-loading body { visibility: hidden; }
+  #settings .hint { color: var(--muted); font-size: 12px; line-height: 1.45; margin: -2px 0 6px; }
+  #settings label { display: flex; align-items: center; gap: 6px; }
+  #settings input[type=checkbox] { width: 18px; height: 18px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: none !important; border-radius: 0 !important; }
+  .seg button.on { background: var(--accent) !important; color: var(--accent-text) !important; }
+
+  #wrap { flex: 1; overflow: auto; position: relative; background: var(--term-bg); -webkit-overflow-scrolling: touch; }
+  #screen { padding: 10px 12px 14px; color: var(--term-fg);
+    font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Roboto Mono", "Droid Sans Mono", "Noto Sans Mono CJK SC", "Sarasa Mono SC", monospace;
+    font-size: 13px; line-height: 1.5; }
+  #screen .line { white-space: pre; min-height: 1.5em; }
+  #screen.wrap .line { white-space: pre-wrap; word-break: break-all; overflow-wrap: anywhere; }
+  #screen .line.rule { white-space: pre; overflow: hidden; opacity: .55; }
+  #screen .line.hist { opacity: .7; }
+  #screen .cur { background: var(--cur-bg); color: var(--cur-fg); border-radius: 2px; }
+  #screen .b { font-weight: 700; } #screen .d { opacity: .62; } #screen .i { font-style: italic; }
+  #screen .u { text-decoration: underline; } #screen .s { text-decoration: line-through; }
+  /* Conversation log: collapsed by default, loaded from the Claude Code session log on demand and inserted above the live screen */
+  .pull { display: none; text-align: center; font-size: 12px; color: var(--muted); padding: 10px 12px; }
+  .pull.show { display: block; }
+  #transcript { font-family: inherit; }
+  .msg { margin: 6px 10px; padding: 8px 12px; border-radius: 14px; font-size: 14px; line-height: 1.5;
+    white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg.user { background: color-mix(in srgb, var(--accent) 20%, var(--surface)); margin-left: 36px; }
+  .msg.assistant { background: var(--surface-2); margin-right: 16px; }
+  .msg .meta { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+  .msg .tool { color: var(--muted); font-size: 12.5px; }
+  .tdivider { text-align: center; color: var(--muted); font-size: 11px; padding: 8px; }
+  #toBottom { position: absolute; right: 14px; bottom: 14px; display: none; background: var(--accent); color: var(--accent-text);
+    border: none; border-radius: 22px; padding: 10px 16px; font-size: 14px; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+
+  footer { background: var(--surface); border-top: 1px solid var(--line); padding: 8px 10px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+  .keys { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: none; }
+  .keys::-webkit-scrollbar { display: none; }
+  .keys button { flex: 0 0 auto; min-width: 48px; height: 38px; background: var(--chip); border: 1px solid var(--line);
+    color: var(--chip-text); border-radius: 10px; padding: 0 13px; font-size: 14px; font-weight: 500; }
+  .keys button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  .keys button.warn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+  .keys button:active { filter: brightness(.9); }
+  .composer { display: flex; gap: 8px; align-items: flex-end; }
+  .composer textarea { flex: 1; min-height: 44px; max-height: 160px; resize: none; background: var(--surface-2);
+    color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; font-size: 16px; line-height: 1.35; }
+  .composer textarea:focus { outline: none; border-color: var(--accent); }
+  .composer .send { background: var(--accent); color: var(--accent-text); border: none; border-radius: 12px;
+    padding: 0 14px; height: 44px; font-size: 16px; font-weight: 600; white-space: nowrap; }   /* keep the input box from being squeezed out on narrow screens */
+  .composer label { font-size: 12px; color: var(--muted); display: flex; flex-direction: column;
+    align-items: center; gap: 3px; height: 44px; justify-content: center; }
+  .composer label input { width: 18px; height: 18px; margin: 0; }
+  .composer label.off { opacity: .4; }          /* the current window is not an AI program, so this option has no effect here */
+  .composer textarea.btw { border-color: var(--accent); }
+
+  /* Quick commands: folded behind ⚡ so they are not hit by accident; commands with side effects need a second tap */
+  header { position: relative; }
+  .icon-btn.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .menu { position: absolute; top: calc(100% + 6px); right: 10px; z-index: 30; min-width: 250px; max-width: calc(100vw - 20px);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 6px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.4); display: none; }
+  .menu.open { display: block; }
+  .menu .item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 12px; border: none;
+    background: none; color: var(--text); font-size: 15px; border-radius: 10px; text-align: left; }
+  .menu .item .cmd { margin-left: auto; color: var(--muted); font-size: 12.5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .menu .item.on { background: color-mix(in srgb, var(--accent) 20%, var(--surface)); }
+  .menu .item.on::before { content: "✓"; color: var(--accent); font-weight: 700; }
+  .menu .item.confirm { background: var(--danger); color: #fff; }
+  .menu .item.confirm .cmd { color: #fff; }
+  .menu .item:active { filter: brightness(.9); }
+  .menu .sect { font-size: 11.5px; color: var(--muted); padding: 10px 12px 4px; border-top: 1px solid var(--line); margin-top: 4px; }
+  /* .menu .item's display:flex beats the browser's own [hidden] rule, so items hidden per program need it spelled out */
+  #quickMenu [hidden] { display: none !important; }
+  .menu-mask { position: fixed; inset: 0; z-index: 29; display: none; }
+  .menu-mask.open { display: block; }
+
+  .mask { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; z-index: 19; }
+  .mask.open { display: block; }
+  .sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 72vh; z-index: 20; display: flex; flex-direction: column;
+    background: var(--surface); border-radius: 18px 18px 0 0; transform: translateY(105%); transition: transform .2s ease-out;
+    box-shadow: 0 -6px 30px rgba(0,0,0,.35); }
+  .sheet.open { transform: none; }
+  .sheet-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px; }
+  .sheet-head .title { flex: 1; font-weight: 700; font-size: 16px; }
+  .sheet-head button { background: var(--surface-2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 10px; width: 38px; height: 38px; font-size: 16px; }
+  .win-list { overflow: auto; padding: 0 0 calc(12px + env(safe-area-inset-bottom)); }
+  .win-row { display: flex; align-items: center; gap: 12px; padding: 11px 16px; border-top: 1px solid var(--line); }
+  .win-row:active { background: var(--surface-2); }
+  .win-row.sel { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+  .win-row .dot { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .win-row .dot.live { background: var(--ok); box-shadow: 0 0 0 3px rgba(52, 211, 153, .18); }
+  .win-row .dot.busy, .win-btn .dot.busy { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245, 158, 11, .2); }
+  .win-row .dot.waiting, .win-btn .dot.waiting { background: var(--accent); box-shadow: 0 0 0 3px rgba(79, 140, 255, .22); }
+  .win-row .main { flex: 1; min-width: 0; }
+  .win-row .name { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .win-row .sub { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+  .win-row .tag { flex: 0 0 auto; font-size: 11px; color: var(--accent); border: 1px solid var(--accent); border-radius: 6px; padding: 1px 6px; }
+  .win-empty { padding: 24px 16px; color: var(--muted); text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <button id="winBtn" class="win-btn"><span class="dot" id="winDot"></span><span class="lbl" id="winLabel" data-i18n="conn.connecting"></span><span class="caret">▾</span></button>
+  <button id="quickBtn" class="icon-btn" data-i18n-title="header.quick">⚡</button>
+  <button id="openSettings" class="icon-btn" data-i18n-title="header.settings">⚙</button>
+  <!-- data-for: which programs an item applies to (claude / codex / opencode). A window whose program was not recognised ("unknown") shows the Claude set. -->
+  <div id="quickMenu" class="menu">
+    <button type="button" class="item" id="btwBtn" data-for="claude unknown"><span data-i18n="menu.btw"></span><span class="cmd">/btw</span></button>
+    <button type="button" class="item" id="compactBtn" data-for="claude codex opencode unknown"><span data-i18n="menu.compact"></span><span class="cmd">/compact</span></button>
+    <div class="sect" data-for="claude unknown" data-i18n="menu.models"></div>
+    <button type="button" class="item model" data-for="claude unknown" data-model="claude-fable-5-1"><span>Fable 5.1</span><span class="cmd">/model</span></button>
+    <button type="button" class="item model" data-for="claude unknown" data-model="claude-opus-5-5"><span>Opus 5.5</span><span class="cmd">/model</span></button>
+    <button type="button" class="item model" data-for="claude unknown" data-model="claude-sonnet-5-5"><span>Sonnet 5.5</span><span class="cmd">/model</span></button>
+    <div class="sect" data-i18n="menu.other"></div>
+    <button type="button" class="item" id="newBtn" data-for="claude codex opencode unknown"><span data-i18n="menu.new"></span><span class="cmd">/new</span></button>
+    <button type="button" class="item" id="usageBtn" data-for="claude unknown"><span data-i18n="menu.usage"></span><span class="cmd">/usage</span></button>
+    <button type="button" class="item" id="statusBtn" data-for="codex opencode" hidden><span id="statusLbl" data-i18n="menu.status"></span><span class="cmd">/status</span></button>
+    <button type="button" class="item" id="pickModelBtn" data-for="codex opencode" hidden><span data-i18n="menu.pickModel"></span><span class="cmd" id="pickCmd">/model</span></button>
+  </div>
+</header>
+<div id="menuMask" class="menu-mask"></div>
+<div id="settings">
+  <div class="row">
+    <label class="grow"><span class="k">🌐 Language / 语言</span><select id="langSel"></select></label>
+  </div>
+  <div class="row"><span class="k" data-i18n="settings.font"></span>
+    <button id="fontMinus">−</button><span id="fontSize">13</span><button id="fontPlus">＋</button>
+    <span class="k" data-i18n="settings.theme"></span>
+    <span class="seg"><button data-theme="auto" data-i18n="settings.themeAuto"></button><button data-theme="dark" data-i18n="settings.themeDark"></button><button data-theme="light" data-i18n="settings.themeLight"></button></span>
+  </div>
+  <div class="row">
+    <label><input type="checkbox" id="wrapChk"><span data-i18n="settings.wrap"></span></label>
+    <label><input type="checkbox" id="compactChk"><span data-i18n="settings.compact"></span></label>
+    <label><input type="checkbox" id="enterSends"><span data-i18n="settings.enterSends"></span></label>
+  </div>
+  <div class="row">
+    <label class="grow"><span class="k" data-i18n="settings.concisePrompt"></span><input type="text" id="concisePrompt" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+  </div>
+  <div class="hint" data-i18n="settings.conciseHint"></div>
+  <div class="row">
+    <label><span class="k" data-i18n="settings.history"></span><input type="number" id="histLines" min="0" max="2000" step="50"></label>
+    <label><input type="checkbox" id="follow"><span data-i18n="settings.follow"></span></label>
+  </div>
+  <div class="row"><button id="syncNow" data-i18n="settings.syncNow"></button><button id="resetToken" data-i18n="settings.resetToken"></button><span id="hint" class="k"></span></div>
+</div>
+<div id="status"><span class="conn" id="conn"></span><span class="txt" id="statusText" data-i18n="conn.connecting"></span><span id="statusTime"></span></div>
+<div id="wrap">
+  <div id="pull" class="pull" data-i18n="tr.pull"></div>
+  <div id="transcript"></div>
+  <div id="screen" class="wrap"></div>
+  <button id="toBottom" data-i18n="toBottom"></button>
+</div>
+<footer>
+  <div class="keys" id="keys"></div>
+  <form class="composer" id="composer" action="#" autocomplete="off">
+    <textarea id="text" rows="1" data-i18n-placeholder="composer.placeholder" enterkeyhint="send"></textarea>
+    <label><input type="checkbox" id="enterChk" checked><span data-i18n="composer.enter"></span></label>
+    <label id="conciseLbl" data-i18n-title="composer.conciseTitle"><input type="checkbox" id="conciseChk" checked><span data-i18n="composer.concise"></span></label>
+    <button type="submit" class="send" id="send" data-i18n="composer.send"></button>
+  </form>
+</footer>
+<div id="sheetMask" class="mask"></div>
+<div id="sheet" class="sheet">
+  <div class="sheet-head"><span class="title" data-i18n="win.sheetTitle"></span><button id="refresh" data-i18n-title="win.refresh">⟳</button><button id="closeSheet" data-i18n-title="win.close">✕</button></div>
+  <div id="winList" class="win-list"></div>
+</div>
+
+<script>
+(function () {
+  // ---------- language ----------
+  // The default language's dictionary is embedded here by the server (no extra request); other languages are fetched from /locales/<code>.json once selected.
+  // If it cannot be fetched (offline, no such file) the page falls back to the default language and still works. Adding a language = dropping one JSON file into src/web/locales/ (see the README there).
+  var DEFAULT_LANG = /*__DEFAULT_LANG__*/"zh-CN";
+  var BASE = /*__I18N_DEFAULT__*/null || {};
+  var PREF_KEY0 = "tmuxWebPrefs";
+  function normCode(s) {                       // "zh-cn" → "zh-CN", "EN" → "en"; anything that does not look like a language code gives ""
+    var p = String(s || "").split("-");
+    if (!/^[A-Za-z]{2,3}$/.test(p[0])) return "";
+    var out = p[0].toLowerCase();
+    if (p[1]) out += "-" + (p[1].length === 2 ? p[1].toUpperCase() : p[1].charAt(0).toUpperCase() + p[1].slice(1).toLowerCase());
+    return out;
+  }
+  // The startup link may carry ?lang=en (like ?token=: remember it, then wipe it from the address bar)
+  try {
+    var u0 = new URL(location.href), q0 = u0.searchParams.get("lang");
+    if (q0) {
+      var want0 = q0 === "auto" ? "auto" : normCode(q0);
+      if (want0) {
+        var saved0 = {};
+        try { saved0 = JSON.parse(localStorage.getItem(PREF_KEY0) || "{}"); } catch (e) { /* ignore */ }
+        saved0.lang = want0;
+        localStorage.setItem(PREF_KEY0, JSON.stringify(saved0));
+      }
+      u0.searchParams.delete("lang");
+      history.replaceState(null, "", u0.pathname + (u0.search || "") + u0.hash);
+    }
+  } catch (e) { /* ignore */ }
+  var savedLang = DEFAULT_LANG;
+  try { savedLang = (JSON.parse(localStorage.getItem(PREF_KEY0) || "{}").lang) || DEFAULT_LANG; } catch (e) { /* ignore */ }
+
+  // "Auto": try the browser's languages in order until one has a dictionary; English if none does
+  function browserCodes() {
+    var out = [], list = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || "en"];
+    list.forEach(function (tag) {
+      var lower = String(tag).toLowerCase(), parts = lower.split("-");
+      if (parts[0] === "zh") { out.push(/tw|hk|mo|hant/.test(lower) ? "zh-TW" : "zh-CN"); return; }
+      var full = normCode(tag);
+      if (full) { if (full !== parts[0]) out.push(full); out.push(parts[0]); }
+    });
+    out.push("en");
+    return out;
+  }
+  function fetchLocale(code) {
+    return fetch("/locales/" + code + ".json", { cache: "no-cache" }).then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    });
+  }
+  function start() {
+    var done = false;
+    function go(dict, code) {
+      if (done) return;
+      done = true;
+      document.documentElement.classList.remove("i18n-loading");
+      boot(dict, code);
+    }
+    if (savedLang === DEFAULT_LANG) { go(BASE, DEFAULT_LANG); return; }
+    document.documentElement.classList.add("i18n-loading");          // hide the page until the dictionary arrives, so there is no flash of the default language
+    setTimeout(function () { go(BASE, DEFAULT_LANG); }, 4000);       // never leave the page blank on a bad network
+    var codes = savedLang === "auto" ? browserCodes() : [normCode(savedLang) || DEFAULT_LANG];
+    (function next(i) {
+      if (i >= codes.length || codes[i] === DEFAULT_LANG) { go(BASE, DEFAULT_LANG); return; }
+      fetchLocale(codes[i]).then(function (d) { go(d, codes[i]); }).catch(function () { next(i + 1); });
+    })(0);
+  }
+  start();
+
+  function boot(I18N, LANG) {
+  var $ = function (id) { return document.getElementById(id); };
+
+  // ---------- text (translations) ----------
+  // T("key", {name: value}): the word in the current language, falling back to the default language; {name} is replaced by the value in params.
+  // The function is deliberately not called t: several local variables below are, and would shadow it.
+  function T(key, params) {
+    var s = I18N[key];
+    if (s === undefined) s = BASE[key];
+    if (s === undefined) return key;
+    return params ? s.replace(/\{(\w+)\}/g, function (m, k) { return (params[k] === undefined || params[k] === null) ? m : params[k]; }) : s;
+  }
+  function applyStaticI18n() {
+    document.documentElement.lang = LANG;
+    document.title = T("app.title");
+    Array.prototype.forEach.call(document.querySelectorAll("[data-i18n]"), function (el) { el.textContent = T(el.getAttribute("data-i18n")); });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-i18n-title]"), function (el) { el.title = T(el.getAttribute("data-i18n-title")); });
+    Array.prototype.forEach.call(document.querySelectorAll("[data-i18n-placeholder]"), function (el) { el.placeholder = T(el.getAttribute("data-i18n-placeholder")); });
+  }
+  applyStaticI18n();      // must run before any code reads button text (e.g. "tap again to confirm" remembers the original label)
+  var screenEl = $("screen"), wrapEl = $("wrap"), statusText = $("statusText"), statusTime = $("statusTime"),
+      statusEl = $("status"), connEl = $("conn"), textEl = $("text"), enterChk = $("enterChk"), conciseChk = $("conciseChk"), toBottomBtn = $("toBottom"),
+      settingsEl = $("settings"), sheetEl = $("sheet"), maskEl = $("sheetMask"), winListEl = $("winList"),
+      winLabel = $("winLabel"), winDot = $("winDot");
+
+  // ---------- token and preferences ----------
+  var TOKEN_KEY = "tmuxWebToken", PREF_KEY = "tmuxWebPrefs";
+  var token = "";
+  try { token = localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { /* ignore */ }
+  // The link printed at startup carries ?token=: store it, then wipe it from the address bar so it does not linger in history or screenshots.
+  try {
+    var u = new URL(location.href);
+    var t = u.searchParams.get("token");
+    if (t) {
+      token = t;
+      try { localStorage.setItem(TOKEN_KEY, t); } catch (e) { /* ignore */ }
+      u.searchParams.delete("token");
+      history.replaceState(null, "", u.pathname + (u.search || "") + u.hash);
+    }
+  } catch (e) { /* ignore */ }
+
+  var prefs = { pane: "", font: 13, wrap: true, compact: true, lines: 200, follow: false, enterSends: true, enter: true, concise: true, concisePrompt: "", theme: "auto", lang: "zh-CN" };
+  try { Object.assign(prefs, JSON.parse(localStorage.getItem(PREF_KEY) || "{}")); } catch (e) { /* ignore */ }
+  function savePrefs() { try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch (e) { /* ignore */ } }
+  // The sentence concise mode appends to a prompt: one per language (concise.default in the dictionary), editable in Settings, empty = this one.
+  // Its wording was chosen by A/B-testing real replies; before changing it (or writing it for a new language) read src/web/locales/README.md.
+  function defaultConcise() { return T("concise.default"); }
+
+  var mediaLight = window.matchMedia ? window.matchMedia("(prefers-color-scheme: light)") : null;
+  function resolvedTheme() {
+    if (prefs.theme === "dark" || prefs.theme === "light") return prefs.theme;
+    return (mediaLight && mediaLight.matches) ? "light" : "dark";
+  }
+  function applyPrefs() {
+    var theme = resolvedTheme();
+    if (document.documentElement.dataset.theme !== theme) {
+      document.documentElement.dataset.theme = theme;
+      document.querySelector('meta[name="theme-color"]').setAttribute("content", theme === "light" ? "#ffffff" : "#111418");
+      lineCache = []; lastHash = "";          // the palette changed: redraw the whole screen
+    }
+    Array.prototype.forEach.call(document.querySelectorAll(".seg button"), function (b) {
+      b.className = b.dataset.theme === prefs.theme ? "on" : "";
+    });
+    screenEl.style.fontSize = prefs.font + "px";
+    $("fontSize").textContent = prefs.font;
+    screenEl.className = prefs.wrap ? "wrap" : "";
+    $("wrapChk").checked = prefs.wrap;
+    $("compactChk").checked = prefs.compact;
+    $("enterSends").checked = prefs.enterSends;
+    $("histLines").value = prefs.lines;
+    $("follow").checked = prefs.follow;
+    enterChk.checked = prefs.enter;
+    conciseChk.checked = prefs.concise;
+    $("concisePrompt").value = prefs.concisePrompt;
+    $("concisePrompt").placeholder = defaultConcise();
+  }
+  if (mediaLight && mediaLight.addEventListener) mediaLight.addEventListener("change", function () { applyPrefs(); pollScreen(); });
+
+  var lastAskAt = 0;
+  function askToken(force) {
+    var now = Date.now();
+    if (!force && now - lastAskAt < 3000) return;
+    lastAskAt = now;
+    var tok = prompt(T("token.prompt"), "");
+    if (tok && tok.trim()) {
+      token = tok.trim();
+      try { localStorage.setItem(TOKEN_KEY, token); } catch (e) { /* ignore */ }
+      lastHash = "";
+      refreshWindows().then(pollScreen);
+    }
+  }
+
+  // Read requests have a timeout: after the phone locks, changes network or the VPN reconnects, an old connection can go "half dead":
+  // the request neither returns nor fails. pollScreen guards against re-entry with an in-flight flag, so one stuck request freezes the screen (the status bar looks normal) until the browser gives up, which can take minutes.
+  // Writes (keys, window switch) get no timeout: a timeout does not mean they did not arrive, and reporting failure invites sending the same input twice.
+  var READ_TIMEOUT_MS = 6000;
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = { "x-auth-token": token };
+    if (opts.body) headers["content-type"] = "application/json";
+    var method = opts.method || "GET";
+    var ctl = method === "GET" && typeof AbortController === "function" ? new AbortController() : null;
+    var timer = ctl ? setTimeout(function () { ctl.abort(); }, READ_TIMEOUT_MS) : null;
+    function settle() { if (timer) { clearTimeout(timer); timer = null; } }
+    return fetch(path, {
+      method: method, headers: headers, cache: "no-store",
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+      signal: ctl ? ctl.signal : undefined
+    }).then(function (r) {
+      return r.json().catch(function (e) {
+        if (e && e.name === "AbortError") throw e;   // timed out while reading the body: that is a failure, not an empty result to render
+        return {};
+      }).then(function (d) {
+        settle();
+        if (r.status === 401) { askToken(false); throw new Error(T("err.token_required")); }
+        if (!r.ok) throw new Error(errText(d.error, r.status));
+        return d;
+      });
+    }).catch(function (e) {
+      settle();
+      throw (e && e.name === "AbortError") ? new Error(T("err.timeout")) : e;
+    });
+  }
+
+  // Server errors carry a stable code: translate it into the current language; only an unknown code falls back to the server's own text.
+  function errText(e, status) {
+    if (!e) return "HTTP " + status;
+    var key = "err." + e.code;
+    if (e.code && (I18N[key] !== undefined || BASE[key] !== undefined)) return T(key, e);
+    return e.message || ("HTTP " + status);
+  }
+
+  function setStatus(text, isErr) {
+    statusText.textContent = text;
+    statusEl.className = isErr ? "err" : "";
+    connEl.className = "conn" + (isErr ? "" : " ok");
+  }
+
+  function ago(sec) {
+    if (sec < 10) return T("act.now");
+    if (sec < 60) return T("act.s", { n: sec });
+    if (sec < 3600) return T("act.m", { n: Math.floor(sec / 60) });
+    if (sec < 86400) return T("act.h", { n: Math.floor(sec / 3600) });
+    return T("act.d", { n: Math.floor(sec / 86400) });
+  }
+
+  // ---------- window list (a hand-drawn sheet, updated in place and never rebuilt, so it does not flicker while open) ----------
+  var windows = [], listSig = "";
+  function currentWindow() {
+    for (var i = 0; i < windows.length; i++) if (windows[i].pane_id === prefs.pane) return windows[i];
+    return null;
+  }
+  function refreshWindows() {
+    return api("/api/windows").then(function (d) {
+      windows = d.windows || [];
+      if (windows.length && !currentWindow()) { prefs.pane = windows[0].pane_id; savePrefs(); lastHash = ""; lineCache = []; }
+      if (!windows.length) { prefs.pane = ""; }
+      renderWindowList();
+      renderWindowButton();
+    }).catch(function (e) { setStatus(T("status.listFailed", { error: e.message }), true); });
+  }
+  function rowName(w) { return w.session + (w.index !== 1 || windows.some(function (x) { return x.session === w.session && x !== w; }) ? ":" + w.index : ""); }
+  function ccStatus(w) {
+    if (!w.claude) return "";
+    var s = w.claude.status, key = "state." + s;
+    return (s && (I18N[key] !== undefined || BASE[key] !== undefined)) ? T(key) : (s || "");
+  }
+  function rowSub(w) {
+    var nowSec = Math.floor(Date.now() / 1000);
+    var parts = [];
+    if (w.claude) { parts.push("Claude Code"); var st = ccStatus(w); if (st) parts.push(st); }
+    else if (w.agent) { parts.push(w.agent.label); }      // Codex / OpenCode: tmux often reports just "node" as the process name
+    else { parts.push(w.name); if (w.command && w.command !== w.name) parts.push(w.command); }
+    if (w.dead) parts.push(T("win.exited"));
+    if (w.activity) parts.push(ago(Math.max(0, nowSec - w.activity)));
+    return parts.join(" · ");
+  }
+  function isLive(w) { return w.activity && (Math.floor(Date.now() / 1000) - w.activity) < 30; }
+  function isBusy(w) { return Boolean(w.claude && (w.claude.status === "busy" || w.claude.status === "shell")); }
+  function isWaiting(w) { return Boolean(w.claude && w.claude.status === "waiting"); }
+  // orange = working, blue = waiting for you, green = output just now, grey = quiet
+  function dotClass(w) { return "dot" + (isBusy(w) ? " busy" : isWaiting(w) ? " waiting" : isLive(w) ? " live" : ""); }
+  function makeRow(w) {
+    var row = document.createElement("div");
+    row.className = "win-row";
+    row.dataset.pane = w.pane_id;
+    row.innerHTML = '<span class="dot"></span><div class="main"><div class="name"></div><div class="sub"></div></div><span class="tag" style="display:none"></span>';
+    row.children[2].textContent = T("win.current");
+    row.addEventListener("click", function () { selectPane(row.dataset.pane); closeSheet(); });
+    return row;
+  }
+  function updateRow(row, w) {
+    var name = rowName(w) + (w.claude && w.claude.name ? " · " + w.claude.name : ""), sub = rowSub(w), sel = w.pane_id === prefs.pane;
+    var nameEl = row.children[1].children[0], subEl = row.children[1].children[1], dot = row.children[0], tag = row.children[2];
+    if (nameEl.textContent !== name) nameEl.textContent = name;
+    if (subEl.textContent !== sub) subEl.textContent = sub;
+    var dotCls = dotClass(w);
+    if (dot.className !== dotCls) dot.className = dotCls;
+    var rowCls = "win-row" + (sel ? " sel" : "");
+    if (row.className !== rowCls) row.className = rowCls;
+    var tagDisp = sel ? "" : "none";
+    if (tag.style.display !== tagDisp) tag.style.display = tagDisp;
+  }
+  function renderWindowList() {
+    if (!windows.length) {
+      if (listSig !== "empty") {
+        winListEl.innerHTML = "";
+        var emp = document.createElement("div");
+        emp.className = "win-empty"; emp.textContent = T("win.noneHere");
+        winListEl.appendChild(emp); listSig = "empty";
+      }
+      return;
+    }
+    var sig = windows.map(function (w) { return w.pane_id; }).join(",");
+    if (sig !== listSig) {
+      // Rebuild only when windows come or go or the order changes; that is rare, and the user has mostly not opened the list yet.
+      winListEl.innerHTML = "";
+      windows.forEach(function (w) { winListEl.appendChild(makeRow(w)); });
+      listSig = sig;
+    }
+    Array.prototype.forEach.call(winListEl.children, function (row, i) { updateRow(row, windows[i]); });
+  }
+  function renderWindowButton() {
+    var w = currentWindow();
+    var label = w ? (rowName(w) + " · " + (w.claude && w.claude.name ? w.claude.name : w.name) +
+                     (w.claude ? "" : w.agent ? " (" + w.agent.label + ")" : (w.command && w.command !== w.name ? " (" + w.command + ")" : "")))
+                  : (windows.length ? T("win.select") : T("win.none"));
+    if (winLabel.textContent !== label) winLabel.textContent = label;
+    var dotCls = w ? dotClass(w) : "dot";
+    if (winDot.className !== dotCls) winDot.className = dotCls;
+    applyAgentUi(w);
+  }
+
+  // ---------- adapt the UI to the program running in the window ----------
+  // The server recognises the program in a window from its process tree (w.agent). If it cannot, the window counts as "unknown",
+  // and the quick menu stays exactly as it was: a failed detection never hides existing features.
+  function agentKind(w) { return w ? (w.agent ? w.agent.kind : (w.claude ? "claude" : "unknown")) : "unknown"; }
+  // Codex / OpenCode have no /usage; their /status is a read-only panel and /model(s) opens a picker, operated with the key bar's arrows / Enter / Esc.
+  var AGENT_CMDS = {
+    codex:    { statusKey: "menu.statusUsage", model: "/model" },
+    opencode: { statusKey: "menu.status",      model: "/models" }
+  };
+  var menuKind = "";
+  function applyAgentUi(w) {
+    var kind = agentKind(w);
+    if (kind === menuKind) return;
+    menuKind = kind;
+    // Concise mode only works in AI-program windows; dim the option elsewhere so it does not look active
+    var lbl = $("conciseLbl"), applies = conciseApplies(kind);
+    lbl.className = applies ? "" : "off";
+    lbl.title = applies ? T("composer.conciseTitle") : T("composer.conciseOff");
+    Array.prototype.forEach.call($("quickMenu").querySelectorAll("[data-for]"), function (el) {
+      el.hidden = (" " + el.dataset["for"] + " ").indexOf(" " + kind + " ") < 0;
+    });
+    var cmds = AGENT_CMDS[kind];
+    if (cmds) { $("statusLbl").textContent = T(cmds.statusKey); $("pickCmd").textContent = cmds.model; }
+    // /btw is a Claude Code feature other programs do not know; it is a sticky switch, so it must be turned off when moving to another program, or every message would get a "/btw " prefix.
+    if (kind === "codex" || kind === "opencode") setBtw(false);
+  }
+  function selectPane(paneId) {
+    if (!paneId || paneId === prefs.pane) return;
+    prefs.pane = paneId;
+    savePrefs();
+    lastHash = ""; lineCache = []; screenEl.innerHTML = "";
+    renderWindowList();
+    renderWindowButton();
+    resetTranscript();
+    pollScreen();
+    var w = currentWindow();
+    if (prefs.follow && w) api("/api/select", { method: "POST", body: { window_id: w.window_id } }).catch(function () { /* ignore */ });
+  }
+  function openSheet() { sheetEl.classList.add("open"); maskEl.classList.add("open"); refreshWindows(); }
+  function closeSheet() { sheetEl.classList.remove("open"); maskEl.classList.remove("open"); }
+  $("winBtn").addEventListener("click", function () { if (sheetEl.classList.contains("open")) closeSheet(); else openSheet(); });
+  $("closeSheet").addEventListener("click", closeSheet);
+  maskEl.addEventListener("click", closeSheet);
+  $("refresh").addEventListener("click", function () { refreshWindows(); lastHash = ""; pollScreen(); });
+
+  // ---------- screen ----------
+  var lastHash = "", inflight = false, lastMeta = null, lastUpdate = 0, stickBottom = true, lineCache = [];
+  function pollScreen() {
+    if (inflight || !prefs.pane || document.hidden) return;
+    inflight = true;
+    api("/api/screen?pane=" + encodeURIComponent(prefs.pane) + "&hash=" + encodeURIComponent(lastHash) + "&lines=" + prefs.lines)
+      .then(function (d) {
+        inflight = false;
+        if (!d.unchanged) {
+          lastHash = d.hash;
+          lastMeta = d;
+          lastUpdate = Date.now();
+          renderScreen(d);
+        }
+        setStatus(statusLine(lastMeta));
+      }).catch(function (e) {
+        inflight = false;
+        setStatus(T("status.refreshFailed", { error: e.message }), true);
+      });
+  }
+  function statusLine(m) {
+    if (!m) return "";
+    var w = currentWindow(), prog = w && w.agent ? w.agent.label : m.command;
+    return m.session + ":" + m.window_index + " " + m.window_name + " · " + prog + " · " + m.size.width + "×" + m.size.height +
+      (m.alternate ? "" : (m.history_size ? " · " + T("status.history", { n: m.history_size }) : ""));
+  }
+
+  // Only a line made entirely of separator characters (─━═╌… and box top/bottom edges) counts as a rule: clip it to the screen width, no wrapping.
+  var RULE_RE = /^[\s─━═┄┅┆┇┈┉┊┋╌╍╎╏╴╶╸╺╭╮╰╯┌┐└┘╔╗╚╝├┤┬┴┼│┃\-=_·•~]{8,}$/;
+  function stripSgr(s) { return s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, ""); }
+  function trimRight(line) {
+    // Strip trailing whitespace, but step over SGR reset sequences in between ("text  \e[0m  ").
+    var prev;
+    do { prev = line; line = line.replace(/ +((?:\x1b\[[0-9;]*m)*)$/, "$1"); } while (line !== prev);
+    return line;
+  }
+  function buildLines(d) {
+    var out = [];
+    (d.history || []).forEach(function (line) {
+      var plain = stripSgr(line).replace(/\s+$/, "");
+      out.push({ html: renderAnsiLine(trimRight(line), -1), cls: "line hist" + (RULE_RE.test(plain) && plain.trim() ? " rule" : ""), blank: !plain });
+    });
+    (d.screen || []).forEach(function (line, i) {
+      var hasCursor = i === d.cursor.y;
+      var plain = stripSgr(line).replace(/\s+$/, "");
+      out.push({ html: renderAnsiLine(hasCursor ? line : trimRight(line), hasCursor ? d.cursor.x : -1),
+                 cls: "line" + (RULE_RE.test(plain) && plain.trim() ? " rule" : ""), blank: !plain && !hasCursor });
+    });
+    if (!prefs.compact) return out;
+    // Compact: keep a single blank line out of any run, drop leading blank lines.
+    var compacted = [], blankRun = 0;
+    out.forEach(function (l) {
+      if (l.blank) { blankRun += 1; if (blankRun > 1 || !compacted.length) return; }
+      else blankRun = 0;
+      compacted.push(l);
+    });
+    return compacted;
+  }
+  function renderScreen(d) {
+    var lines = buildLines(d);
+    var children = screenEl.children;
+    var heightBefore = screenEl.scrollHeight;
+    for (var i = 0; i < lines.length; i++) {
+      var el = children[i];
+      if (!el) { el = document.createElement("div"); screenEl.appendChild(el); lineCache[i] = null; }
+      var cached = lineCache[i];
+      if (!cached || cached.html !== lines[i].html) el.innerHTML = lines[i].html || "";
+      if (!cached || cached.cls !== lines[i].cls) el.className = lines[i].cls;
+      lineCache[i] = lines[i];
+    }
+    while (children.length > lines.length) screenEl.removeChild(screenEl.lastChild);
+    lineCache.length = lines.length;
+    if (stickBottom && screenEl.scrollHeight !== heightBefore) wrapEl.scrollTop = wrapEl.scrollHeight;
+  }
+  wrapEl.addEventListener("scroll", function () {
+    stickBottom = wrapEl.scrollTop + wrapEl.clientHeight >= wrapEl.scrollHeight - 24;
+    toBottomBtn.style.display = stickBottom ? "none" : "block";
+    if (wrapEl.scrollTop < 40) loadOlder();      // scrolled to the top: load a page of earlier conversation
+  });
+
+  // ---------- conversation log (from Claude Code's session log file) ----------
+  var transcriptEl = $("transcript"), pullEl = $("pull");
+  var tr = { available: false, nextBefore: null, loading: false, loaded: 0 };
+  function resetTranscript() {
+    transcriptEl.innerHTML = "";
+    tr = { available: false, nextBefore: null, loading: false, loaded: 0 };
+    pullEl.className = "pull";
+    pullEl.textContent = T("tr.pull");
+    if (!prefs.pane) return;
+    var pane = prefs.pane;
+    api("/api/transcript?pane=" + encodeURIComponent(pane) + "&limit=1").then(function (d) {
+      if (pane !== prefs.pane) return;
+      tr.available = Boolean(d.available);
+      if (tr.available) { tr.nextBefore = d.total; pullEl.className = "pull show"; }
+    }).catch(function () { /* not having one is fine */ });
+  }
+  function fmtTime(ms) {
+    var d = new Date(ms), p = function (n) { return (n < 10 ? "0" : "") + n; };
+    return p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+  }
+  function makeMsg(e) {
+    var el = document.createElement("div");
+    el.className = "msg " + (e.role === "user" ? "user" : "assistant");
+    var meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = (e.role === "user" ? T("tr.you") : "Claude") + (e.ts ? " · " + fmtTime(e.ts) : "");
+    el.appendChild(meta);
+    var body = document.createElement("div");
+    String(e.text || "").split("\n").forEach(function (line, i) {
+      if (i) body.appendChild(document.createTextNode("\n"));
+      if (line.indexOf("🔧 ") === 0) { var t = document.createElement("span"); t.className = "tool"; t.textContent = line; body.appendChild(t); }
+      else body.appendChild(document.createTextNode(line));
+    });
+    el.appendChild(body);
+    return el;
+  }
+  function loadOlder() {
+    if (!tr.available || tr.loading || tr.nextBefore === null || !prefs.pane) return;
+    tr.loading = true;
+    pullEl.textContent = T("tr.loading");
+    var pane = prefs.pane, before = tr.nextBefore;
+    api("/api/transcript?pane=" + encodeURIComponent(pane) + "&before=" + before + "&limit=20").then(function (d) {
+      tr.loading = false;
+      if (pane !== prefs.pane) return;
+      if (!d.available) { tr.available = false; pullEl.className = "pull"; return; }
+      var prevHeight = wrapEl.scrollHeight, prevTop = wrapEl.scrollTop;
+      var frag = document.createDocumentFragment();
+      d.entries.forEach(function (e) { frag.appendChild(makeMsg(e)); });
+      if (!tr.loaded && d.entries.length) {
+        var div = document.createElement("div");
+        div.className = "tdivider";
+        div.textContent = T("tr.divider");
+        frag.appendChild(div);
+      }
+      transcriptEl.insertBefore(frag, transcriptEl.firstChild);
+      tr.loaded += d.entries.length;
+      tr.nextBefore = d.next_before;
+      // Content goes in above: the viewport must move down by the same height so what the user is reading does not jump.
+      wrapEl.scrollTop = prevTop + (wrapEl.scrollHeight - prevHeight);
+      stickBottom = false;
+      toBottomBtn.style.display = "block";
+      pullEl.textContent = tr.nextBefore === null ? T("tr.earliest") : T("tr.more");
+    }).catch(function (e) { tr.loading = false; pullEl.textContent = T("tr.failed", { error: e.message }); });
+  }
+  pullEl.addEventListener("click", loadOlder);
+  // When the content is shorter than the view there is nothing to scroll and so no scroll event: fall back to a gesture — dragging down more than 50px at the top also counts as "pull up".
+  var touchY = null;
+  wrapEl.addEventListener("touchstart", function (e) { touchY = wrapEl.scrollTop <= 0 ? e.touches[0].clientY : null; }, { passive: true });
+  wrapEl.addEventListener("touchmove", function (e) {
+    if (touchY === null) return;
+    if (e.touches[0].clientY - touchY > 50) { touchY = null; loadOlder(); }
+  }, { passive: true });
+  toBottomBtn.addEventListener("click", function () { stickBottom = true; wrapEl.scrollTop = wrapEl.scrollHeight; toBottomBtn.style.display = "none"; });
+  setInterval(pollScreen, 350);
+  setInterval(function () { if (!document.hidden) refreshWindows(); }, 5000);
+  setInterval(function () {
+    if (!lastUpdate) return;
+    var s = Math.round((Date.now() - lastUpdate) / 1000);
+    statusTime.textContent = s < 2 ? T("changed.now") : T("changed.s", { n: s });
+  }, 1000);
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) { lastHash = ""; refreshWindows(); pollScreen(); }
+  });
+
+  // ---------- ANSI colours → HTML ----------
+  // capture-pane -e only emits SGR (\e[...m); every other escape sequence is dropped. Two palettes serve the light and dark themes.
+  var PALETTES = {
+    dark:  { fg: "#dfe4ec", bg: "#0d1013", colors: [
+      "#4b5563", "#ff7676", "#5fd68f", "#f5cf5c", "#6ea8ff", "#d995f0", "#58d3dc", "#d9dee8",
+      "#8a94a6", "#ff9a9a", "#86e8ac", "#ffe08a", "#93bcff", "#e8b0f7", "#82e3ea", "#ffffff"] },
+    light: { fg: "#1f2430", bg: "#ffffff", colors: [
+      "#1f2430", "#c62828", "#1b7f3b", "#9a6700", "#0b57d0", "#8e24aa", "#0f766e", "#5b6578",
+      "#6e7781", "#e53935", "#2e9e52", "#b7791f", "#3b82f6", "#ab47bc", "#14b8a6", "#1f2430"] }
+  };
+  function palette() { return PALETTES[document.documentElement.dataset.theme === "light" ? "light" : "dark"]; }
+  function color256(n) {
+    if (n < 16) return palette().colors[n];
+    if (n < 232) {
+      n -= 16;
+      var lv = [0, 95, 135, 175, 215, 255];
+      return "rgb(" + lv[Math.floor(n / 36)] + "," + lv[Math.floor((n % 36) / 6)] + "," + lv[n % 6] + ")";
+    }
+    var v = 8 + 10 * (n - 232);
+    return "rgb(" + v + "," + v + "," + v + ")";
+  }
+  function freshState() { return { fg: null, bg: null, b: false, d: false, i: false, u: false, r: false, s: false }; }
+  function applySgr(st, params) {
+    var p = params === "" ? [0] : params.split(";").map(function (x) { return x === "" ? 0 : Number(x); });
+    var pal = palette().colors;
+    for (var k = 0; k < p.length; k++) {
+      var n = p[k];
+      if (n === 0) { var f = freshState(); for (var key in f) st[key] = f[key]; }
+      else if (n === 1) st.b = true; else if (n === 2) st.d = true; else if (n === 3) st.i = true;
+      else if (n === 4) st.u = true; else if (n === 7) st.r = true; else if (n === 9) st.s = true;
+      else if (n === 22) { st.b = false; st.d = false; } else if (n === 23) st.i = false;
+      else if (n === 24) st.u = false; else if (n === 27) st.r = false; else if (n === 29) st.s = false;
+      else if (n >= 30 && n <= 37) st.fg = pal[n - 30]; else if (n === 39) st.fg = null;
+      else if (n >= 40 && n <= 47) st.bg = pal[n - 40]; else if (n === 49) st.bg = null;
+      else if (n >= 90 && n <= 97) st.fg = pal[n - 90 + 8]; else if (n >= 100 && n <= 107) st.bg = pal[n - 100 + 8];
+      else if (n === 38 || n === 48) {
+        var target = n === 38 ? "fg" : "bg";
+        if (p[k + 1] === 5) { st[target] = color256(p[k + 2] || 0); k += 2; }
+        else if (p[k + 1] === 2) { st[target] = "rgb(" + (p[k + 2] || 0) + "," + (p[k + 3] || 0) + "," + (p[k + 4] || 0) + ")"; k += 4; }
+      }
+    }
+  }
+  function escapeHtml(s) {
+    return s.replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; });
+  }
+  function spanFor(st, text) {
+    if (!text) return "";
+    var pal = palette();
+    var fg = st.r ? (st.bg || pal.bg) : st.fg;
+    var bg = st.r ? (st.fg || pal.fg) : st.bg;
+    var cls = (st.b ? " b" : "") + (st.d ? " d" : "") + (st.i ? " i" : "") + (st.u ? " u" : "") + (st.s ? " s" : "");
+    var style = (fg ? "color:" + fg + ";" : "") + (bg ? "background:" + bg + ";" : "");
+    if (!cls && !style) return escapeHtml(text);
+    return "<span" + (cls ? ' class="' + cls.trim() + '"' : "") + (style ? ' style="' + style + '"' : "") + ">" + escapeHtml(text) + "</span>";
+  }
+  // Wide characters (CJK etc.) take two cells in tmux; the cursor column counts cells.
+  var WIDE_RE = /[ᄀ-ᅟ⺀-〾ぁ-㏿㐀-䶿一-鿿ꀀ-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/;
+  function renderAnsiLine(line, cursorX) {
+    var st = freshState(), out = "", col = 0, last = 0, m;
+    var re = /\x1b\[([0-9;]*)m|\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b./g;
+    function cellWidth(text) {
+      var n = 0, chars = Array.from(text);
+      for (var i = 0; i < chars.length; i++) n += WIDE_RE.test(chars[i]) ? 2 : 1;
+      return n;
+    }
+    function flush(text) {
+      if (!text) return;
+      if (cursorX < 0 || col > cursorX) { out += spanFor(st, text); col += cellWidth(text); return; }
+      // The cursor may fall inside this run: walk to that cell character by character and reverse-video it.
+      var chars = Array.from(text), before = "", after = "", hit = "";
+      for (var i = 0; i < chars.length; i++) {
+        var w = WIDE_RE.test(chars[i]) ? 2 : 1;
+        if (!hit && col === cursorX) hit = chars[i];
+        else if (hit) after += chars[i];
+        else before += chars[i];
+        col += w;
+      }
+      out += spanFor(st, before);
+      if (hit) out += '<span class="cur">' + escapeHtml(hit) + "</span>";
+      out += spanFor(st, after);
+    }
+    while ((m = re.exec(line))) {
+      flush(line.slice(last, m.index));
+      last = re.lastIndex;
+      if (m[1] !== undefined) applySgr(st, m[1]);
+    }
+    flush(line.slice(last));
+    // Cursor in the trailing blank: add a reverse-video space, or you could not see where it is.
+    if (cursorX >= 0 && col <= cursorX) out += " ".repeat(cursorX - col) + '<span class="cur"> </span>';
+    return out;
+  }
+
+  // ---------- input ----------
+  var KEYS = [
+    ["Enter", "Enter", "primary"], ["Esc", "Escape"], ["Ctrl-C", "C-c", "warn"], ["⇧Tab", "BTab"], ["Tab", "Tab"],
+    ["↑", "Up"], ["↓", "Down"], ["←", "Left"], ["→", "Right"], ["⌫", "BSpace"], ["Ctrl-U", "C-u"],
+    ["PgUp", "PPage"], ["PgDn", "NPage"], ["Ctrl-R", "C-r"], ["Ctrl-O", "C-o"], ["Ctrl-L", "C-l"], ["Ctrl-D", "C-d", "warn"]
+  ];
+  var keysEl = $("keys");
+  KEYS.forEach(function (k) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.textContent = k[0];
+    if (k[2]) b.className = k[2];
+    b.addEventListener("click", function () { sendKeys([k[1]]); });
+    keysEl.appendChild(b);
+  });
+
+  function afterSend() { lastHash = ""; stickBottom = true; setTimeout(pollScreen, 60); setTimeout(pollScreen, 400); }
+  function sendKeys(keys) {
+    if (!prefs.pane) { setStatus(T("status.pickWindow"), true); return; }
+    api("/api/send", { method: "POST", body: { pane: prefs.pane, keys: keys } })
+      .then(afterSend).catch(function (e) { setStatus(T("status.sendFailed", { error: e.message }), true); });
+  }
+  // /btw switch: once on, what you send gets a "/btw " prefix (Claude Code's side question, which does not interrupt the current task).
+  // It is a sticky switch, not one-shot: no need to tap it for every question in a row; the input border and placeholder keep reminding you it is on.
+  // ---------- quick menu (folded by default) ----------
+  var quickBtn = $("quickBtn"), quickMenu = $("quickMenu"), menuMask = $("menuMask");
+  var disarmers = [];
+  function openMenu() { quickMenu.classList.add("open"); menuMask.classList.add("open"); }
+  function closeMenu() { quickMenu.classList.remove("open"); menuMask.classList.remove("open"); disarmers.forEach(function (f) { f(); }); }
+  quickBtn.addEventListener("click", function () { if (quickMenu.classList.contains("open")) closeMenu(); else openMenu(); });
+  menuMask.addEventListener("click", closeMenu);
+
+  var btwBtn = $("btwBtn"), btwOn = false;
+  var PLACEHOLDER_NORMAL = T("composer.placeholder"), PLACEHOLDER_BTW = T("composer.placeholderBtw");
+  function setBtw(on) {
+    btwOn = on;
+    btwBtn.className = "item" + (on ? " on" : "");
+    quickBtn.className = "icon-btn" + (on ? " on" : "");       // visible even with the menu closed
+    textEl.className = on ? "btw" : "";
+    textEl.placeholder = on ? PLACEHOLDER_BTW : PLACEHOLDER_NORMAL;
+  }
+  btwBtn.addEventListener("click", function () { setBtw(!btwOn); closeMenu(); });
+
+  // One-shot commands with side effects (compact context, switch model, new conversation) need two taps: the first only arms the button, a second tap within 3 s sends.
+  function armable(btn, action) {
+    var label = btn.children[0].textContent, timer = null;
+    function disarm() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      btn.children[0].textContent = label;
+      btn.classList.remove("confirm");
+    }
+    btn.addEventListener("click", function () {
+      if (!prefs.pane) { setStatus(T("status.pickWindow"), true); return; }
+      if (!timer) {
+        btn.children[0].textContent = T("menu.confirm", { label: label });
+        btn.classList.add("confirm");
+        timer = setTimeout(disarm, 3000);
+        return;
+      }
+      disarm();
+      closeMenu();
+      action();
+    });
+    disarmers.push(disarm);
+  }
+  armable($("compactBtn"), function () { sendCommands(["/compact"], T("sent.cmd", { cmd: "/compact" })); });
+  Array.prototype.forEach.call(document.querySelectorAll("#quickMenu .item.model"), function (btn) {
+    var id = btn.dataset.model, label = btn.children[0].textContent;
+    armable(btn, function () { sendCommands(["/model " + id, "/effort max"], T("sent.model", { label: label })); });
+  });
+  armable($("newBtn"), function () { sendCommands(["/new"], T("sent.cmd", { cmd: "/new" })); });
+  // Read-only: one tap sends, no confirmation. Close the usage panel with the key bar's Esc.
+  $("usageBtn").addEventListener("click", function () {
+    if (!prefs.pane) { setStatus(T("status.pickWindow"), true); return; }
+    closeMenu();
+    sendCommands(["/usage"], T("sent.cmd", { cmd: "/usage" }));
+  });
+  // Codex / OpenCode only: likewise just opens a panel and changes nothing, so one tap sends.
+  $("statusBtn").addEventListener("click", function () {
+    if (!prefs.pane) { setStatus(T("status.pickWindow"), true); return; }
+    closeMenu();
+    sendCommands(["/status"], T("sent.status"));
+  });
+  $("pickModelBtn").addEventListener("click", function () {
+    if (!prefs.pane) { setStatus(T("status.pickWindow"), true); return; }
+    var cmd = (AGENT_CMDS[menuKind] || {}).model || "/model";
+    closeMenu();
+    sendCommands([cmd], T("sent.modelPicker"));
+  });
+
+  // Send several commands in turn, leaving time between them for the program to finish the previous one (/effort right after /model).
+  function sendCommands(cmds, doneText) {
+    var i = 0;
+    function next() {
+      if (i >= cmds.length) { setStatus(doneText || T("sent.cmd", { cmd: cmds.join(" ; ") })); afterSend(); return; }
+      var cmd = cmds[i++];
+      api("/api/send", { method: "POST", body: { pane: prefs.pane, text: cmd, enter: true } })
+        .then(function () { lastHash = ""; pollScreen(); setTimeout(next, 900); })
+        .catch(function (e) { setStatus(T("status.sendFailed", { error: e.message }), true); });
+    }
+    next();
+  }
+
+  // ---------- concise mode ----------
+  // With "Concise" ticked, a reply-style request is appended to the end of what you send. Appending would break the following, so it is skipped for them:
+  //   slash commands (text after /compact turns into compaction instructions), shell lines starting with !, memory lines starting with #,
+  //   answers to menus / confirmations (1, 2, y, n); in a plain shell window it would simply mangle the command,
+  //   so it only applies in windows recognised as Claude Code / Codex / OpenCode.
+  function conciseApplies(kind) { return kind === "claude" || kind === "codex" || kind === "opencode"; }
+  function conciseText() { return (prefs.concisePrompt || "").trim() || defaultConcise(); }
+  function withConcise(raw, kind) {
+    if (!prefs.concise || !conciseApplies(kind)) return raw;
+    if (!/\S/.test(raw) || /^\s*[\/!#]/.test(raw) || /^\s*(\d{1,2}|[A-Za-z])\s*$/.test(raw)) return raw;
+    var body = raw.replace(/\s+$/, "");
+    // a single line stays a single line (the "typed" path); multi-line text gets a new line
+    return body + (body.indexOf("\n") >= 0 ? "\n" : " ") + conciseText();
+  }
+
+  function sendText() {
+    var raw = textEl.value;
+    if (!raw) { if (enterChk.checked) sendKeys(["Enter"]); return; }
+    if (!prefs.pane) { setStatus(T("status.pickWindow"), true); return; }
+    var body = withConcise(raw, agentKind(currentWindow()));
+    // do not stack another prefix if the user already typed /btw themselves.
+    var t = (btwOn && !/^\s*\/btw\b/i.test(raw)) ? "/btw " + body.replace(/^\s+/, "") : body;
+    textEl.value = "";
+    autoGrow();
+    api("/api/send", { method: "POST", body: { pane: prefs.pane, text: t, enter: enterChk.checked } })
+      .then(afterSend).catch(function (e) { setStatus(T("status.sendFailed", { error: e.message }), true); textEl.value = raw; autoGrow(); });
+  }
+  $("composer").addEventListener("submit", function (e) { e.preventDefault(); sendText(); });
+  var composing = false;
+  textEl.addEventListener("compositionstart", function () { composing = true; });
+  textEl.addEventListener("compositionend", function () { composing = false; });
+  textEl.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && !composing && prefs.enterSends) {
+      e.preventDefault();
+      sendText();
+    }
+  });
+  function autoGrow() {
+    textEl.style.height = "auto";
+    textEl.style.height = Math.min(160, textEl.scrollHeight) + "px";
+  }
+  textEl.addEventListener("input", autoGrow);
+  enterChk.addEventListener("change", function () { prefs.enter = enterChk.checked; savePrefs(); });
+  conciseChk.addEventListener("change", function () { prefs.concise = conciseChk.checked; savePrefs(); });
+  $("concisePrompt").addEventListener("change", function () {
+    prefs.concisePrompt = $("concisePrompt").value.trim(); savePrefs();
+    $("concisePrompt").value = prefs.concisePrompt;      // only spaces left: clear it, so the placeholder (the default sentence) can show
+  });
+
+  // ---------- settings ----------
+  // Language menu: starts with just "Auto" and the current language; the full list (/locales/index.json) is fetched when Settings is first opened, so startup makes no extra request.
+  var langSel = $("langSel"), langListLoaded = false;
+  function fillLangSelect(list) {
+    langSel.innerHTML = "";
+    var auto = document.createElement("option");
+    auto.value = "auto"; auto.textContent = T("lang.auto");
+    langSel.appendChild(auto);
+    list.forEach(function (it) {
+      var o = document.createElement("option");
+      o.value = it.code; o.textContent = it.name;
+      langSel.appendChild(o);
+    });
+    langSel.value = prefs.lang;
+  }
+  fillLangSelect([{ code: LANG, name: I18N._name || LANG }]);
+  function loadLangList() {
+    if (langListLoaded) return;
+    langListLoaded = true;
+    fetch("/locales/index.json", { cache: "no-cache" }).then(function (r) { return r.json(); })
+      .then(function (d) { if (d && d.languages && d.languages.length) fillLangSelect(d.languages); })
+      .catch(function () { langListLoaded = false; });
+  }
+  langSel.addEventListener("change", function () { prefs.lang = langSel.value; savePrefs(); location.reload(); });
+  $("openSettings").addEventListener("click", function () { settingsEl.classList.toggle("open"); loadLangList(); });
+  $("fontMinus").addEventListener("click", function () { prefs.font = Math.max(9, prefs.font - 1); savePrefs(); applyPrefs(); });
+  $("fontPlus").addEventListener("click", function () { prefs.font = Math.min(24, prefs.font + 1); savePrefs(); applyPrefs(); });
+  Array.prototype.forEach.call(document.querySelectorAll(".seg button"), function (b) {
+    b.addEventListener("click", function () { prefs.theme = b.dataset.theme; savePrefs(); applyPrefs(); pollScreen(); });
+  });
+  $("wrapChk").addEventListener("change", function () { prefs.wrap = $("wrapChk").checked; savePrefs(); applyPrefs(); });
+  $("compactChk").addEventListener("change", function () { prefs.compact = $("compactChk").checked; savePrefs(); lastHash = ""; lineCache = []; pollScreen(); });
+  $("enterSends").addEventListener("change", function () { prefs.enterSends = $("enterSends").checked; savePrefs(); });
+  $("histLines").addEventListener("change", function () {
+    prefs.lines = Math.max(0, Math.min(2000, Number($("histLines").value) || 0)); savePrefs(); applyPrefs(); lastHash = ""; pollScreen();
+  });
+  $("follow").addEventListener("change", function () { prefs.follow = $("follow").checked; savePrefs(); });
+  $("syncNow").addEventListener("click", function () {
+    var w = currentWindow();
+    if (!w) return;
+    api("/api/select", { method: "POST", body: { window_id: w.window_id } })
+      .then(function () { $("hint").textContent = T("settings.syncDone", { name: rowName(w) }); })
+      .catch(function (e) { $("hint").textContent = T("settings.failed", { error: e.message }); });
+  });
+  $("resetToken").addEventListener("click", function () { askToken(true); });
+
+  applyPrefs();
+  fetch("/health").then(function (r) { return r.json(); }).then(function (h) {
+    if (h.auth && !token) askToken(true);
+    refreshWindows().then(function () { resetTranscript(); pollScreen(); });
+  }).catch(function () { setStatus(T("status.cannotConnect"), true); });
+  }   // boot
+})();
+</script>
+</body>
+</html>

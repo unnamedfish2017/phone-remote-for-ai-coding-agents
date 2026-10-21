@@ -1,0 +1,39 @@
+{
+  "name": "phone-remote-for-ai-coding-agents",
+  "version": "0.1.0",
+  "description": "Phone remote for AI coding agents: watch and talk to Claude Code, Codex and OpenCode running in tmux from your phone's browser, by voice. Zero dependencies.",
+  "type": "module",
+  "bin": {
+    "phone-remote": "bin/phone-remote.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "docs/*.md",
+    "scripts/make-cert.sh",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node bin/phone-remote.mjs",
+    "test": "node scripts/run-tests.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "tmux",
+    "claude-code",
+    "codex",
+    "opencode",
+    "ai-coding-agent",
+    "voice-input",
+    "doubao",
+    "remote-control",
+    "mobile",
+    "vibe-coding",
+    "zero-dependency"
+  ],
+  "license": "MIT"
+}

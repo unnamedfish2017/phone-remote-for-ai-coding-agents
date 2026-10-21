@@ -1,0 +1,9 @@
+node_modules/
+.DS_Store
+*.log
+.phone-remote/
+coverage/
+# local TLS material and tokens must never be committed
+*.pem
+*.key
+token
