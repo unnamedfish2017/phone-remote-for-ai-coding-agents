@@ -15,6 +15,8 @@
 
 [English](README.md) · **简体中文**
 
+<sub>感谢 [LINUX DO](https://linux.do)（新的理想型社区）佬友们的支持</sub>
+
 </div>
 
 ---

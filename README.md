@@ -13,6 +13,8 @@ Speak your prompt, tap send, read short numbered answers. **Zero dependencies.**
 
 **English** · [简体中文](README.zh-CN.md)
 
+<sub>Thanks to the [LINUX DO](https://linux.do) community ("The New Ideal Community") for the support</sub>
+
 </div>
 
 ---
