@@ -132,6 +132,14 @@ export function langFromEnv(env, available) {
   return "en";
 }
 
+// What to say when tmux cannot be run. Windows has no tmux of its own: the way there is WSL2 (docs/windows.md).
+export function tmuxMissingMessage(platform) {
+  if (platform === "win32") {
+    return "phone-remote: there is no tmux for Windows itself. Run Phone Remote inside WSL2 (Ubuntu), next to your agents: see docs/windows.md\n";
+  }
+  return "phone-remote: could not run tmux. Install it first (for example `sudo apt install tmux` or `brew install tmux`) or point --tmux-bin at it.\n";
+}
+
 // ---------- token ----------
 
 export async function resolveToken(config) {
@@ -216,7 +224,7 @@ export async function main(argv, { env = process.env, out = process.stdout, err 
   config.token = await resolveToken(config);
   const tmuxVersion = (await runTmux(config, ["-V"]).catch(error => ({ stdout: "", stderr: error.message }))).stdout.trim();
   if (!tmuxVersion) {
-    err.write("phone-remote: could not run tmux. Install it first (for example `sudo apt install tmux` or `brew install tmux`) or point --tmux-bin at it.\n");
+    err.write(tmuxMissingMessage(process.platform));
     return 2;
   }
 
@@ -246,9 +254,9 @@ export async function main(argv, { env = process.env, out = process.stdout, err 
   if (shouldOpenPairPage({ open: config.open, tokenCreated: config.tokenCreated, isTTY: out.isTTY, env, platform: process.platform })) {
     try {
       pairFile = await writePairPage(config.stateDir, buildPairPage({ links, version: VERSION, hasToken: !config.noAuth }));
-      const opened = await openFile(pairFile, { platform: process.platform });
+      const opened = await openFile(pairFile, { platform: process.platform, env });
       out.write(opened
-        ? "  A page with a full-size QR code just opened in your browser; it is deleted when you stop.\n"
+        ? `  Opening a page with a full-size QR code in your browser (if nothing appears, open ${pairFile} yourself); it is deleted when you stop.\n`
         : `  Could not open a browser. Open ${pairFile} yourself for a full-size QR code; it is deleted when you stop.\n`);
     } catch { pairFile = ""; /* the code in the terminal is enough */ }
   }

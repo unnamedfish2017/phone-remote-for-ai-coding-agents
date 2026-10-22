@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildLinks, classifyAddress, interfaceAddresses, langFromEnv, parseArgs } from "../src/cli.mjs";
+import { buildLinks, classifyAddress, interfaceAddresses, langFromEnv, parseArgs, tmuxMissingMessage } from "../src/cli.mjs";
 
 const LOCALES = ["zh-CN", "en", "zh-TW", "ja", "ko", "es", "fr", "de", "pt", "ru"];
 const env = {};     // parseArgs reads defaults from the environment: start from a clean one
@@ -106,4 +106,11 @@ test("links: a fixed host, a public URL, no token and no language", () => {
   assert.equal(buildLinks({ ...base, host: "10.0.0.5", publicUrl: "" })[0].url, "https://10.0.0.5:443/");
   assert.equal(buildLinks({ ...base, host: "::1", publicUrl: "" })[0].url, "https://[::1]:443/");
   assert.equal(buildLinks({ ...base, token: "t", host: "0.0.0.0", publicUrl: "https://remote.example.net" })[0].url, "https://remote.example.net/?token=t");
+});
+
+test("without tmux, Windows is pointed at WSL2 and everyone else at their package manager", () => {
+  assert.match(tmuxMissingMessage("win32"), /no tmux for Windows itself.*WSL2.*docs\/windows\.md/);
+  assert.match(tmuxMissingMessage("linux"), /apt install tmux/);
+  assert.match(tmuxMissingMessage("darwin"), /brew install tmux/);
+  assert.ok(!/apt install/.test(tmuxMissingMessage("win32")), "no advice that cannot work on Windows");
 });

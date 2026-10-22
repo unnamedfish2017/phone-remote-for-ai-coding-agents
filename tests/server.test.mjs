@@ -260,7 +260,7 @@ test("--open opens a private page with the code and deletes it again; nothing op
       assert.equal(statSync(opened).mode & 0o777, 0o600, "the page holds the token: owner only");
       const html = await readFile(opened, "utf8");
       assert.ok(html.includes("<svg") && html.includes(w.token), "the big code and the link with the token");
-      assert.match(w.stdout, /just opened in your browser/);
+      assert.match(w.stdout, /Opening a page with a full-size QR code/);
       w.child.kill("SIGTERM");
       await w.exited;
       assert.ok(!existsSync(opened), "deleted when Phone Remote stops");
@@ -294,7 +294,7 @@ test("in a real terminal on a desktop the page opens by itself on the first run 
     await waitFor("the opener was called on the first run", () => existsSync(opened));
     assert.equal(readFileSync(opened, "utf8").trim(), path.join(world.dir, "state", "pair.html"));
     assert.match(screen("first"), /Scan this with your phone/);
-    assert.match(screen("first"), /just opened in your browser/);
+    assert.match(screen("first"), /Opening a page with a full-size QR code/);
     world.tmux("send-keys", "-t", "first", "C-c");
     await waitFor("the page is deleted when the first run stops", () => !existsSync(path.join(world.dir, "state", "pair.html")));
     rmOpened(world);

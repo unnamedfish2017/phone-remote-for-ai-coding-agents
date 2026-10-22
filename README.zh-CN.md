@@ -59,7 +59,7 @@
 
 ## 快速开始
 
-在跑助手的那台电脑上需要 **Node.js 18+** 和 **tmux 3.x**。作者在 Linux 上开发和测试；macOS 理论上能用（进程识别会退回 `ps`），但作者没试过，欢迎反馈。
+在跑助手的那台电脑上需要 **Node.js 18+** 和 **tmux 3.x**。作者在 Linux 上开发和测试；macOS 理论上能用（进程识别会退回 `ps`），但作者没试过，欢迎反馈。 **Windows** 请在 WSL2 里运行（Windows 本身没有 tmux）：[分步说明](docs/windows.md)。
 
 ```bash
 git clone https://github.com/unnamedfish2017/phone-remote-for-ai-coding-agents.git

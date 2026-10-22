@@ -71,10 +71,15 @@ ${others.length ? `<h2>Other addresses · 其他地址</h2>\n<div class="others"
 
 // ---------- when to open it, and how ----------
 
-// A desktop session where a browser window can appear: not over SSH, and on Linux only with a display.
+// Inside WSL (Windows Subsystem for Linux) the Windows side owns the browser.
+export const isWsl = env => Boolean(env.WSL_DISTRO_NAME || env.WSL_INTEROP);
+
+// A desktop session where a browser window can appear: not over SSH; macOS and Windows have one; WSL can reach Windows' browser;
+// other Linux needs a display.
 export function hasDesktop(env, platform) {
   if (env.SSH_CONNECTION || env.SSH_TTY) return false;
   if (platform === "darwin" || platform === "win32") return true;
+  if (isWsl(env)) return true;
   return Boolean(env.DISPLAY || env.WAYLAND_DISPLAY);
 }
 
@@ -85,21 +90,30 @@ export function shouldOpenPairPage({ open, tokenCreated, isTTY, env, platform })
   return Boolean(tokenCreated && isTTY && hasDesktop(env, platform));
 }
 
-export function openCommand(platform, file) {
-  if (platform === "darwin") return { cmd: "open", args: [file] };
-  if (platform === "win32") return { cmd: "cmd", args: ["/c", "start", "", file] };
-  return { cmd: "xdg-open", args: [file] };
+// The openers to try, in order. In WSL, `wslview` (package wslu) hands the file to Windows' default browser; xdg-open is the fallback.
+export function openCommands(platform, file, env = {}) {
+  if (platform === "darwin") return [{ cmd: "open", args: [file] }];
+  if (platform === "win32") return [{ cmd: "cmd", args: ["/c", "start", "", file] }];
+  const list = [{ cmd: "xdg-open", args: [file] }];
+  if (isWsl(env)) list.unshift({ cmd: "wslview", args: [file] });
+  return list;
 }
 
-// → true once the opener has started, false when there is none (headless machine) or it could not run.
-export function openFile(file, { platform = process.platform, spawnFn = spawn } = {}) {
-  const { cmd, args } = openCommand(platform, file);
+function launch(cmd, args, spawnFn) {
   return new Promise(resolve => {
     let child;
     try { child = spawnFn(cmd, args, { stdio: "ignore", detached: true }); } catch { resolve(false); return; }
     child.once("error", () => resolve(false));
     child.once("spawn", () => { child.unref(); resolve(true); });
   });
+}
+
+// → true once an opener has started (it may still fail to show a browser), false when there is none (headless machine).
+export async function openFile(file, { platform = process.platform, env = process.env, spawnFn = spawn } = {}) {
+  for (const { cmd, args } of openCommands(platform, file, env)) {
+    if (await launch(cmd, args, spawnFn)) return true;
+  }
+  return false;
 }
 
 export async function writePairPage(stateDir, html) {

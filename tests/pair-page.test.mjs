@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { buildPairPage, hasDesktop, openCommand, openFile, shouldOpenPairPage, writePairPage } from "../src/pair-page.mjs";
+import { buildPairPage, hasDesktop, isWsl, openCommands, openFile, shouldOpenPairPage, writePairPage } from "../src/pair-page.mjs";
 
 const LAN = { label: "Wi-Fi / LAN · wlan0", url: "http://192.168.1.23:8787/?token=abc123&lang=en" };
 const VPN = { label: "VPN · tailscale0", url: "http://100.101.102.103:8787/?token=abc123&lang=en" };
@@ -48,7 +48,7 @@ test("a link too long for a QR code still gets its text", () => {
   assert.ok(html.includes("aaaaaaaaaa"));
 });
 
-test("hasDesktop: never over SSH; macOS and Windows have one; Linux needs a display", () => {
+test("hasDesktop: never over SSH; macOS, Windows and WSL have one; other Linux needs a display", () => {
   assert.equal(hasDesktop({ SSH_CONNECTION: "1 2 3 4" }, "darwin"), false);
   assert.equal(hasDesktop({ SSH_TTY: "/dev/pts/0", DISPLAY: ":0" }, "linux"), false);
   assert.equal(hasDesktop({}, "darwin"), true);
@@ -56,6 +56,14 @@ test("hasDesktop: never over SSH; macOS and Windows have one; Linux needs a disp
   assert.equal(hasDesktop({ DISPLAY: ":0" }, "linux"), true);
   assert.equal(hasDesktop({ WAYLAND_DISPLAY: "wayland-0" }, "linux"), true);
   assert.equal(hasDesktop({}, "linux"), false);
+  assert.equal(hasDesktop({ WSL_DISTRO_NAME: "Ubuntu" }, "linux"), true, "WSL reaches Windows' browser without an X server");
+  assert.equal(hasDesktop({ WSL_DISTRO_NAME: "Ubuntu", SSH_CONNECTION: "x" }, "linux"), false);
+});
+
+test("isWsl looks at the variables WSL sets", () => {
+  assert.equal(isWsl({ WSL_DISTRO_NAME: "Ubuntu" }), true);
+  assert.equal(isWsl({ WSL_INTEROP: "/run/WSL/1_interop" }), true);
+  assert.equal(isWsl({}), false);
 });
 
 test("shouldOpenPairPage: flags win; otherwise only a first run (new token) in a terminal on a desktop", () => {
@@ -69,17 +77,29 @@ test("shouldOpenPairPage: flags win; otherwise only a first run (new token) in a
   assert.equal(shouldOpenPairPage({ open: true, tokenCreated: false, isTTY: false, env: {}, platform: "linux" }), true, "--open is always honoured");
 });
 
-test("openCommand picks the opener of each system", () => {
-  assert.deepEqual(openCommand("darwin", "/x/pair.html"), { cmd: "open", args: ["/x/pair.html"] });
-  assert.deepEqual(openCommand("win32", "C:\\x\\pair.html"), { cmd: "cmd", args: ["/c", "start", "", "C:\\x\\pair.html"] });
-  assert.deepEqual(openCommand("linux", "/x/pair.html"), { cmd: "xdg-open", args: ["/x/pair.html"] });
+test("openCommands lists the openers of each system in the order to try them", () => {
+  assert.deepEqual(openCommands("darwin", "/x/pair.html"), [{ cmd: "open", args: ["/x/pair.html"] }]);
+  assert.deepEqual(openCommands("win32", "C:\\x\\pair.html"), [{ cmd: "cmd", args: ["/c", "start", "", "C:\\x\\pair.html"] }]);
+  assert.deepEqual(openCommands("linux", "/x/pair.html", {}), [{ cmd: "xdg-open", args: ["/x/pair.html"] }]);
+  assert.deepEqual(openCommands("linux", "/x/pair.html", { WSL_DISTRO_NAME: "Ubuntu" }).map(o => o.cmd), ["wslview", "xdg-open"], "WSL: Windows' browser first");
 });
 
-test("openFile reports whether an opener started", async () => {
-  const fake = events => () => { const child = new EventEmitter(); child.unref = () => {}; setImmediate(() => events.forEach(([name, arg]) => child.emit(name, arg))); return child; };
-  assert.equal(await openFile("/x", { platform: "linux", spawnFn: fake([["spawn"]]) }), true);
-  assert.equal(await openFile("/x", { platform: "linux", spawnFn: fake([["error", new Error("ENOENT")]]) }), false);
-  assert.equal(await openFile("/x", { platform: "linux", spawnFn: () => { throw new Error("boom"); } }), false);
+test("openFile falls back to the next opener, and reports whether any started", async () => {
+  const calls = [];
+  const spawnWith = working => cmd => {
+    calls.push(cmd);
+    const child = new EventEmitter();
+    child.unref = () => {};
+    setImmediate(() => (working.includes(cmd) ? child.emit("spawn") : child.emit("error", new Error("ENOENT"))));
+    return child;
+  };
+  const wsl = { WSL_DISTRO_NAME: "Ubuntu" };
+  assert.equal(await openFile("/x", { platform: "linux", env: wsl, spawnFn: spawnWith(["wslview", "xdg-open"]) }), true);
+  assert.deepEqual(calls.splice(0), ["wslview"], "the first one that starts is enough");
+  assert.equal(await openFile("/x", { platform: "linux", env: wsl, spawnFn: spawnWith(["xdg-open"]) }), true);
+  assert.deepEqual(calls.splice(0), ["wslview", "xdg-open"], "no wslview installed: xdg-open");
+  assert.equal(await openFile("/x", { platform: "linux", env: wsl, spawnFn: spawnWith([]) }), false);
+  assert.equal(await openFile("/x", { platform: "linux", env: {}, spawnFn: () => { throw new Error("boom"); } }), false);
 });
 
 test("the page is written for the owner only", { skip: process.platform === "win32" }, async () => {
