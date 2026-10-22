@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
@@ -210,6 +210,105 @@ test("the banner has a link with token and language; the QR code appears with --
     taken.close();
   } finally { await world.cleanup(); }
 });
+
+test("the QR code comes last, as big or as small as asked, after the links and the notes", { skip }, async () => {
+  await withServer(["--qr", "--qr-size", "large"], async w => {
+    assert.ok(w.stdout.includes("\x1b[48;5;231m"), "big code (background colours)");
+    assert.ok(!w.stdout.includes("\x1b[30;47m"));
+    const at = text => w.stdout.indexOf(text);
+    assert.ok(at("Open on your phone") < at("Token kept in"), "links, then notes");
+    assert.ok(at("Token kept in") < at("Scan this with your phone"), "then the code");
+    assert.ok(at("Scan this with your phone") < at("Press Ctrl-C"), "and it is the last thing before the prompt line");
+  });
+  await withServer(["--qr", "--qr-size", "compact"], async w => {
+    assert.ok(w.stdout.includes("\x1b[30;47m") && !w.stdout.includes("\x1b[48;5;231m"));
+  });
+  await withServer(["--qr"], async w => {
+    assert.ok(w.stdout.includes("\x1b[30;47m"), "auto: not a terminal, so no size to go by: compact");
+  });
+  const world = await scratch();
+  try {
+    const bad = await startServerProcess(world, ["--qr-size", "huge"], { wait: false });
+    assert.equal(await bad.exited, 2);
+    assert.match(bad.stderr, /--qr-size must be auto, large or compact/);
+  } finally { await world.cleanup(); }
+});
+
+test("--open opens a private page with the code and deletes it again; nothing opens on its own from a pipe", { skip: skip || (process.platform !== "linux" && "the opener is stubbed for Linux") }, async () => {
+  const world = await scratch();
+  try {
+    // an `xdg-open` that only records what it was asked to open
+    mkdirSync(path.join(world.dir, "bin"));
+    const opener = path.join(world.dir, "bin", "xdg-open");
+    writeFileSync(opener, `#!/bin/sh\necho "$1" > "${path.join(world.dir, "opened.txt")}"\n`);
+    chmodSync(opener, 0o755);
+    const env = { PATH: `${path.join(world.dir, "bin")}:${process.env.PATH}`, DISPLAY: ":0" };
+
+    // first run, but stdout is a pipe: no popup on its own
+    const quiet = await startServerProcess(world, [], { env });
+    await new Promise(r => setTimeout(r, 400));
+    assert.ok(!existsSync(path.join(world.dir, "opened.txt")), "no popup from a pipe");
+    await quiet.stop();
+
+    const w = await startServerProcess(world, ["--open"], { env });
+    try {
+      let opened = "";
+      for (let i = 0; i < 60 && !opened; i += 1) {
+        try { opened = (await readFile(path.join(world.dir, "opened.txt"), "utf8")).trim(); } catch { await new Promise(r => setTimeout(r, 50)); }
+      }
+      assert.equal(opened, path.join(world.dir, "state", "pair.html"));
+      assert.equal(statSync(opened).mode & 0o777, 0o600, "the page holds the token: owner only");
+      const html = await readFile(opened, "utf8");
+      assert.ok(html.includes("<svg") && html.includes(w.token), "the big code and the link with the token");
+      assert.match(w.stdout, /just opened in your browser/);
+      w.child.kill("SIGTERM");
+      await w.exited;
+      assert.ok(!existsSync(opened), "deleted when Phone Remote stops");
+    } finally { await w.stop(); }
+
+    rmOpened(world);
+    const off = await startServerProcess(world, ["--open", "--no-open"], { env });
+    await new Promise(r => setTimeout(r, 400));
+    assert.ok(!existsSync(path.join(world.dir, "opened.txt")), "--no-open wins");
+    await off.stop();
+  } finally { await world.cleanup(); }
+});
+
+test("in a real terminal on a desktop the page opens by itself on the first run only", { skip: skip || (process.platform !== "linux" && "the opener is stubbed for Linux") }, async () => {
+  const world = await scratch();
+  try {
+    mkdirSync(path.join(world.dir, "bin"));
+    const opener = path.join(world.dir, "bin", "xdg-open");
+    const opened = path.join(world.dir, "opened.txt");
+    writeFileSync(opener, `#!/bin/sh\necho "$1" > "${opened}"\n`);
+    chmodSync(opener, 0o755);
+    // inside a tmux pane the CLI really has a terminal (isTTY, columns, rows); a desktop is faked with DISPLAY and no SSH variables
+    const run = session => world.tmux("new-session", "-d", "-s", session, "-x", "100", "-y", "50",
+      `env -u SSH_CONNECTION -u SSH_TTY PATH=${path.join(world.dir, "bin")}:$PATH DISPLAY=:0 node ${CLI} --port 0 --host 127.0.0.1 ` +
+      `--socket-path ${world.sock} --state-dir ${path.join(world.dir, "state")} --claude-dir ${path.join(world.dir, "claude")}`);
+    const screen = session => world.tmux("capture-pane", "-p", "-t", session);
+    const waitFor = async (what, ok) => { for (let i = 0; i < 100; i += 1) { if (ok()) return; await new Promise(r => setTimeout(r, 50)); } assert.fail(what); };
+
+    run("first");
+    await waitFor("the banner of the first run", () => /Press Ctrl-C/.test(screen("first")));
+    await waitFor("the opener was called on the first run", () => existsSync(opened));
+    assert.equal(readFileSync(opened, "utf8").trim(), path.join(world.dir, "state", "pair.html"));
+    assert.match(screen("first"), /Scan this with your phone/);
+    assert.match(screen("first"), /just opened in your browser/);
+    world.tmux("send-keys", "-t", "first", "C-c");
+    await waitFor("the page is deleted when the first run stops", () => !existsSync(path.join(world.dir, "state", "pair.html")));
+    rmOpened(world);
+
+    run("second");                                                 // the token exists now: nothing new to pair
+    await waitFor("the banner of the second run", () => /Press Ctrl-C/.test(screen("second")));
+    await new Promise(r => setTimeout(r, 500));
+    assert.ok(!existsSync(opened), "no popup on later runs");
+    assert.match(screen("second"), /Scan this with your phone/, "but the code is still printed");
+    world.tmux("send-keys", "-t", "second", "C-c");
+  } finally { await world.cleanup(); }
+});
+
+function rmOpened(world) { try { rmSync(path.join(world.dir, "opened.txt")); } catch { /* not there */ } }
 
 // ---------- the real thing: windows, agents, screen, input ----------
 

@@ -211,12 +211,28 @@ export function encodeQr(text, { mask } = {}) {
 }
 
 // The matrix as text for a terminal: black modules on a white block whatever the terminal theme is
-// (inverted codes are not read by every camera app), two module rows per text line using half blocks.
-export function renderQr(text, { quiet = 2, mask } = {}) {
+// (inverted codes are not read by every camera app).
+//   scale 1: two module rows per text line, drawn with half blocks — the smallest.
+//   scale 2: every module is two spaces wide and one line tall, painted with background colours (block glyphs can leave
+//            hairline gaps between lines in terminals that add line spacing) — exactly twice as big in both directions.
+export function renderQr(text, { quiet = 2, mask, scale = 1 } = {}) {
   const m = encodeQr(text, { mask });
   const n = m.length;
   const dark = (x, y) => x >= 0 && y >= 0 && x < n && y < n && m[y][x];
   const lines = [];
+  if (scale >= 2) {
+    const BLACK = "\x1b[48;5;16m", WHITE = "\x1b[48;5;231m";   // pure black / white of the 256-colour cube
+    for (let y = -quiet; y < n + quiet; y += 1) {
+      let line = "", current = "";
+      for (let x = -quiet; x < n + quiet; x += 1) {
+        const color = dark(x, y) ? BLACK : WHITE;
+        if (color !== current) { line += color; current = color; }
+        line += "  ";
+      }
+      lines.push(`${line}\x1b[0m`);
+    }
+    return lines.join("\n");
+  }
   for (let y = -quiet; y < n + quiet; y += 2) {
     let line = "";
     for (let x = -quiet; x < n + quiet; x += 1) {
@@ -226,4 +242,29 @@ export function renderQr(text, { quiet = 2, mask } = {}) {
     lines.push(`\x1b[30;47m${line}\x1b[0m`);
   }
   return lines.join("\n");
+}
+
+// The biggest rendering that still fits the terminal. `modules` is the symbol size (encodeQr(...).length); the code is the
+// last thing the banner prints, so only the lines around it are reserved (`reserve`: its heading, the blank lines, the
+// "Press Ctrl-C" line and the prompt) — whatever the banner printed before may scroll up out of sight. `indent` is the margin.
+export function chooseQrScale(modules, { columns, rows, quiet = 2, indent = 4, reserve = 6 } = {}) {
+  const side = modules + 2 * quiet;
+  return columns >= indent + 2 * side && rows >= reserve + side ? 2 : 1;
+}
+
+// The matrix as an SVG for a web page: one path made of horizontal runs, quiet zone included, crisp at any size.
+export function qrSvg(text, { quiet = 4, mask } = {}) {
+  const m = encodeQr(text, { mask });
+  const n = m.length, side = n + 2 * quiet;
+  let d = "";
+  for (let y = 0; y < n; y += 1) {
+    for (let x = 0; x < n; x += 1) {
+      if (!m[y][x]) continue;
+      let end = x;
+      while (end + 1 < n && m[y][end + 1]) end += 1;
+      d += `M${x + quiet} ${y + quiet}h${end - x + 1}v1h-${end - x + 1}z`;
+      x = end;
+    }
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${side} ${side}" shape-rendering="crispEdges" role="img" aria-label="QR code"><rect width="${side}" height="${side}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
 }

@@ -65,7 +65,7 @@ cd phone-remote-for-ai-coding-agents
 node bin/phone-remote.mjs
 ```
 
-Phone Remote prints a link and a QR code. **Scan it with your phone** — same Wi-Fi, or a VPN such as [Tailscale](https://tailscale.com) (it lists every address your phone could use, and tags VPN ones). Done.
+Phone Remote prints a link and a QR code. **Scan it with your phone** — same Wi-Fi, or a VPN such as [Tailscale](https://tailscale.com) (it lists every address your phone could use, and tags VPN ones). Done. The code is drawn twice as big when your terminal has room (`--qr-size`), and the first time you run it on a desktop it also opens a page with a full-size one in your browser (`--open` brings that page back any time).
 
 ```text
   Phone Remote for AI Coding Agents 0.1.0
@@ -77,6 +77,15 @@ Phone Remote prints a link and a QR code. **Scan it with your phone** — same W
       ↳ Wi-Fi / LAN · wlan0
     http://100.101.102.103:8787/?token=…&lang=en
       ↳ VPN · tailscale0
+
+  Scan this with your phone's camera (Wi-Fi / LAN · wlan0):
+
+      █▀▀▀▀▀█ ▄█ ▄▄█▄▄█▀▀▀█ ▄▀▄ █▀▀▀▀▀█
+      █ ███ █ ▄█▀█ ▄▄█ ▄▀█ ▀█   █ ███ █
+      █ ▀▀▀ █ ▄ █ ▀▄▄▄▀▀▀▀▀  ▀  █ ▀▀▀ █
+      ▀▀▀▀▀▀▀ ▀ ▀ █ █▄█ ▀▄▀▄█▄▀ ▀▀▀▀▀▀▀
+      ███▀█ ▀▀██▀ ▀█▄ ▄█▄█▄▄▀█▄█▄█ ▀ █▄
+    ⋮  (the full code is drawn here)
 ```
 
 Start your agents inside tmux as usual (`tmux new -s api`, then run `claude`, `codex` or `opencode`); every tmux window shows up in the list. Want a `phone-remote` command? Run `npm link` in the folder.
@@ -93,6 +102,8 @@ Start your agents inside tmux as usual (`tmux new -s api`, then run `claude`, `c
 | `--cert` / `--key` | serve HTTPS ([how](docs/security.md#https)) |
 | `--lang <code>` | language in the printed link (default: from your system locale) |
 | `--public-url <url>` | the address your phone should use, if it is not one of this machine's |
+| `--qr-size <size>` | QR code size: `auto` (default, twice as big when the terminal has room), `large`, `compact` |
+| `--open` / `--no-open` | open a page with a full-size QR code in your browser (default: first run on a desktop, never over SSH) |
 | `--socket-name` / `--socket-path` | talk to a non-default tmux server |
 | `--no-auth` | no token at all — refused unless the address is loopback |
 

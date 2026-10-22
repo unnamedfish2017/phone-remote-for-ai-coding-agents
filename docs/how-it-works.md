@@ -10,7 +10,8 @@ src/
   agents.mjs             which program is in a window, and how to type to it
   claude-transcript.mjs  earlier conversation, read from Claude Code's session log
   netguard.mjs           source-IP allow-list, Host-header check
-  qr.mjs                 terminal QR code (≈230 lines, decoder-verified)
+  qr.mjs                 QR code for the terminal (two sizes) and as SVG (≈260 lines, decoder-verified)
+  pair-page.mjs          the full-size QR page opened in a browser (--open)
   web/index.html         the whole phone UI
   web/locales/*.json     interface languages
 ```

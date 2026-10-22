@@ -1,14 +1,15 @@
 // Command line: options, the access token, the startup banner (links + QR code), and starting the server.
 
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 
 import { DEFAULT_ALLOW_FROM, isLoopbackHost, parseAllowList, parseIp } from "./netguard.mjs";
-import { renderQr } from "./qr.mjs";
+import { buildPairPage, openFile, removePairPage, shouldOpenPairPage, writePairPage } from "./pair-page.mjs";
+import { chooseQrScale, encodeQr, renderQr } from "./qr.mjs";
 import { listLocales, startServer } from "./server.mjs";
 import { runTmux } from "./tmux.mjs";
 
@@ -35,6 +36,9 @@ Run it on the machine where your tmux sessions live, then open the printed link 
   --default-lang <c>  language the page uses when nothing else is chosen (default ${DEFAULT_LANG}; env PHONE_REMOTE_DEFAULT_LANG)
   --public-url <url>  address your phone should use, if it is not one of this machine's (VPN name, reverse proxy …)
   --no-qr / --qr      never / always print the QR code (default: only when stdout is a terminal)
+  --qr-size <size>    auto (default: twice as big when the terminal has room), large or compact
+  --open / --no-open  open a page with a full-size QR code in your browser
+                      (default: on the first run, in a terminal on a desktop; never over SSH)
   --state-dir <dir>   where the token is kept (default ~/.phone-remote; env PHONE_REMOTE_HOME)
   --tmux-bin <path>   tmux executable (default tmux; env TMUX_BIN)
   --socket-name <n>   talk to tmux -L <n>          --socket-path <p>  talk to tmux -S <p>
@@ -57,6 +61,8 @@ export function parseArgs(argv, env = process.env) {
     defaultLang: env.PHONE_REMOTE_DEFAULT_LANG || DEFAULT_LANG,
     publicUrl: "",
     qr: "auto",
+    qrSize: "auto",
+    open: "auto",
     stateDir: env.PHONE_REMOTE_HOME || path.join(os.homedir(), ".phone-remote"),
     tmuxBin: env.TMUX_BIN || "tmux",
     socketArgs: [],
@@ -83,6 +89,9 @@ export function parseArgs(argv, env = process.env) {
     else if (flag === "--public-url") config.publicUrl = next().replace(/\/+$/, "");
     else if (flag === "--no-qr") config.qr = false;
     else if (flag === "--qr") config.qr = true;
+    else if (flag === "--qr-size") config.qrSize = next();
+    else if (flag === "--open") config.open = true;
+    else if (flag === "--no-open") config.open = false;
     else if (flag === "--state-dir") config.stateDir = next();
     else if (flag === "--tmux-bin") config.tmuxBin = next();
     else if (flag === "--socket-name") config.socketArgs = ["-L", next()];
@@ -96,6 +105,7 @@ export function parseArgs(argv, env = process.env) {
     throw new Error("--port must be between 0 and 65535 (0 = pick a free port)");
   }
   if ((config.cert && !config.key) || (!config.cert && config.key)) throw new Error("--cert and --key go together");
+  if (!["auto", "large", "compact"].includes(config.qrSize)) throw new Error("--qr-size must be auto, large or compact");
   if (config.noAuth && !isLoopbackHost(config.host)) {
     throw new Error("--no-auth is only allowed together with a loopback --host (127.0.0.1, ::1 or localhost): without a token, anyone who can reach the port can type into your terminals");
   }
@@ -136,6 +146,7 @@ export async function resolveToken(config) {
   await mkdir(config.stateDir, { recursive: true, mode: 0o700 });
   await writeFile(file, `${fresh}\n`, { mode: 0o600 });
   await chmod(file, 0o600);
+  config.tokenCreated = true;
   return fresh;
 }
 
@@ -224,17 +235,37 @@ export async function main(argv, { env = process.env, out = process.stdout, err 
   });
   out.write(`\n  Phone Remote for AI Coding Agents ${VERSION}\n  ${tmuxVersion}\n\n  Open on your phone:\n\n`);
   for (const l of links) out.write(`    ${l.url}\n      ↳ ${l.label}\n`);
-  if (config.qr === true || (config.qr === "auto" && out.isTTY)) {
-    try { out.write(`\n${renderQr(links[0].url).split("\n").map(l => `    ${l}`).join("\n")}\n`); } catch { /* link too long for a QR code: skip it */ }
-  }
   out.write("\n");
   if (config.noAuth) out.write("  ⚠ No access token: only this computer can reach it.\n");
   else out.write(`  Token kept in ${path.join(config.stateDir, "token")} — anyone holding it can type into your terminals, so keep the link private.\n`);
   if (config.allowAny) out.write("  ⚠ --allow-any: connections from every address are accepted.\n");
   if (!running.scheme.endsWith("s") && !config.noAuth) out.write("  Plain HTTP: fine on a trusted LAN or an encrypted VPN (Tailscale, WireGuard); see docs/security.md for HTTPS.\n");
-  out.write("  Press Ctrl-C to stop.\n\n");
 
-  const stop = () => { running.close().then(() => process.exit(0)); };
+  // A full-size code in the browser (a terminal can only draw as big as its font allows). It holds the token: private file, removed on exit.
+  let pairFile = "";
+  if (shouldOpenPairPage({ open: config.open, tokenCreated: config.tokenCreated, isTTY: out.isTTY, env, platform: process.platform })) {
+    try {
+      pairFile = await writePairPage(config.stateDir, buildPairPage({ links, version: VERSION, hasToken: !config.noAuth }));
+      const opened = await openFile(pairFile, { platform: process.platform });
+      out.write(opened
+        ? "  A page with a full-size QR code just opened in your browser; it is deleted when you stop.\n"
+        : `  Could not open a browser. Open ${pairFile} yourself for a full-size QR code; it is deleted when you stop.\n`);
+    } catch { pairFile = ""; /* the code in the terminal is enough */ }
+  }
+
+  // The code is printed last: it is the one thing that has to be completely on screen, and the big rendering needs the most lines.
+  if (config.qr === true || (config.qr === "auto" && out.isTTY)) {
+    try {
+      const url = links[0].url;
+      const scale = config.qrSize === "large" ? 2 : config.qrSize === "compact" ? 1
+        : chooseQrScale(encodeQr(url).length, { columns: out.columns, rows: out.rows });
+      out.write(`\n  Scan this with your phone's camera (${links[0].label}):\n\n${renderQr(url, { scale }).split("\n").map(l => `    ${l}`).join("\n")}\n`);
+    } catch { /* link too long for a QR code: skip it */ }
+  }
+  out.write("\n  Press Ctrl-C to stop.\n\n");
+
+  if (pairFile) process.on("exit", () => { try { rmSync(pairFile, { force: true }); } catch { /* gone already */ } });
+  const stop = () => { Promise.resolve(pairFile && removePairPage(pairFile)).then(() => running.close()).then(() => process.exit(0)); };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
   return null;       // null = keep running

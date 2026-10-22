@@ -67,7 +67,7 @@ cd phone-remote-for-ai-coding-agents
 node bin/phone-remote.mjs
 ```
 
-它会打印一个链接和一个二维码，**用手机扫码**即可——手机和电脑在同一个 Wi-Fi，或者走 [Tailscale](https://tailscale.com)、ZeroTier、WireGuard、公司 VPN 之类（它会列出手机可能用到的所有地址，并标出 VPN 那条）。
+它会打印一个链接和一个二维码，**用手机扫码**即可——手机和电脑在同一个 Wi-Fi，或者走 [Tailscale](https://tailscale.com)、ZeroTier、WireGuard、公司 VPN 之类（它会列出手机可能用到的所有地址，并标出 VPN 那条）。二维码在终端够大时会自动放大一倍（`--qr-size`）；第一次在桌面系统上运行时，还会在浏览器里弹出一个整页的大二维码（`--open` 可随时再弹）。
 
 ```text
   Phone Remote for AI Coding Agents 0.1.0
@@ -79,6 +79,15 @@ node bin/phone-remote.mjs
       ↳ Wi-Fi / LAN · wlan0
     http://100.101.102.103:8787/?token=…&lang=zh-CN
       ↳ VPN · tailscale0
+
+  Scan this with your phone's camera (Wi-Fi / LAN · wlan0):
+
+      █▀▀▀▀▀█ ▄█ ▄▄█▄▄█▀▀▀█ ▄▀▄ █▀▀▀▀▀█
+      █ ███ █ ▄█▀█ ▄▄█ ▄▀█ ▀█   █ ███ █
+      █ ▀▀▀ █ ▄ █ ▀▄▄▄▀▀▀▀▀  ▀  █ ▀▀▀ █
+      ▀▀▀▀▀▀▀ ▀ ▀ █ █▄█ ▀▄▀▄█▄▀ ▀▀▀▀▀▀▀
+      ███▀█ ▀▀██▀ ▀█▄ ▄█▄█▄▄▀█▄█▄█ ▀ █▄
+    ⋮  （这里是完整的二维码）
 ```
 
 照常在 tmux 里启动助手（`tmux new -s api`，然后运行 `claude`、`codex` 或 `opencode`）；每个 tmux 窗口都会出现在列表里。想要一个 `phone-remote` 命令？在目录里运行 `npm link`。
@@ -95,6 +104,8 @@ node bin/phone-remote.mjs
 | `--cert` / `--key` | 启用 HTTPS（[怎么做](docs/security.md#https)） |
 | `--lang <代码>` | 打印的链接里带的界面语言（默认取自系统语言环境） |
 | `--public-url <地址>` | 手机应该使用的地址（当它不是本机某个网卡的地址时） |
+| `--qr-size <大小>` | 二维码大小：`auto`（默认，终端够大时放大一倍）、`large`、`compact` |
+| `--open` / `--no-open` | 在浏览器里打开一个整页大二维码（默认：第一次在桌面系统上运行时打开；SSH 下从不打开） |
 | `--socket-name` / `--socket-path` | 连非默认的 tmux 服务器 |
 | `--no-auth` | 完全不要令牌——只允许绑定在回环地址上 |
 

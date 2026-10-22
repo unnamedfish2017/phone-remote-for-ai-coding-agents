@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { MAX_BYTES, encodeQr, renderQr } from "../src/qr.mjs";
+import { MAX_BYTES, chooseQrScale, encodeQr, qrSvg, renderQr } from "../src/qr.mjs";
 
 // This exact symbol was rendered to an image and decoded back to the URL below with OpenCV's QR reader, so a change in
 // the encoder's output is a change in something a phone camera would see: look at it before updating the fixture.
@@ -115,4 +115,52 @@ test("the terminal rendering is the matrix plus a quiet zone, black on white, tw
 
 test("same text, same symbol", () => {
   assert.deepEqual(encodeQr("deterministic"), encodeQr("deterministic"));
+});
+
+test("the big terminal rendering is the matrix doubled: every module two background-coloured spaces, quiet zone included", () => {
+  const url = "http://10.0.0.5:8787/";
+  const m = encodeQr(url);
+  const n = m.length;
+  const lines = renderQr(url, { quiet: 2, scale: 2 }).split("\n");
+  assert.equal(lines.length, n + 4, "one text line per module row");
+  const dark = (x, y) => x >= 0 && y >= 0 && x < n && y < n && m[y][x];
+  lines.forEach((line, row) => {
+    // cells = the characters after each colour switch; every module is exactly two columns wide
+    let color = "", cells = [];
+    for (const part of line.split(/(\x1b\[[0-9;]*m)/)) {
+      if (part.startsWith("\x1b[")) { color = part; continue; }
+      for (let i = 0; i < part.length; i += 1) { assert.equal(part[i], " ", "only spaces are drawn; the colour does the work"); cells.push(color); }
+    }
+    assert.equal(cells.length, 2 * (n + 4), `row ${row} width`);
+    cells.forEach((c, col) => {
+      const x = Math.floor(col / 2) - 2, y = row - 2;
+      assert.equal(c, dark(x, y) ? "\x1b[48;5;16m" : "\x1b[48;5;231m", `row ${row} col ${col}`);
+    });
+  });
+});
+
+test("chooseQrScale takes the big rendering only when the terminal is wide and tall enough for it", () => {
+  const modules = 33;                                      // quiet zone 2 → 37 modules → 74 columns + 4 margin, 37 lines + 6 around it
+  assert.equal(chooseQrScale(modules, { columns: 78, rows: 43 }), 2);
+  assert.equal(chooseQrScale(modules, { columns: 77, rows: 43 }), 1);
+  assert.equal(chooseQrScale(modules, { columns: 78, rows: 42 }), 1);
+  assert.equal(chooseQrScale(modules, { columns: 80, rows: 24 }), 1, "a classic 80x24 terminal gets the compact one");
+  assert.equal(chooseQrScale(modules, {}), 1, "unknown size (not a terminal) stays compact");
+  assert.equal(chooseQrScale(21, { columns: 60, rows: 40 }), 2, "a short link makes a smaller symbol that fits sooner");
+});
+
+test("the SVG is the same matrix: runs of dark modules, quiet zone of four, crisp edges", () => {
+  const url = "http://192.168.1.23:8787/?token=abc";
+  const m = encodeQr(url);
+  const n = m.length;
+  const svg = qrSvg(url);
+  assert.match(svg, new RegExp(`viewBox="0 0 ${n + 8} ${n + 8}"`));
+  assert.match(svg, /shape-rendering="crispEdges"/);
+  const got = Array.from({ length: n }, () => Array(n).fill(false));
+  const path = /<path d="([^"]*)"/.exec(svg)[1];
+  for (const [, x, y, w] of path.matchAll(/M(\d+) (\d+)h(\d+)v1h-\3z/g)) {
+    for (let i = 0; i < Number(w); i += 1) got[Number(y) - 4][Number(x) - 4 + i] = true;
+  }
+  assert.deepEqual(art(got), art(m));
+  assert.ok(!/<script|href=|src=/i.test(svg), "nothing to fetch, nothing to run");
 });
